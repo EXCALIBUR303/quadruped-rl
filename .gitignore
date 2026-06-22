@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+logs/
+checkpoints/
+*.png
+*.mp4
+
