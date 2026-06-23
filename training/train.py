@@ -20,7 +20,7 @@ from sim.envs import QuadrupedEnv
 CHECKPOINT_DIR = "checkpoints"
 LOG_DIR        = "logs"
 N_ENVS         = 4          # parallel workers (safe on M-series Mac)
-TOTAL_STEPS    = 10_000_000  # curriculum (forward + turn) needs more experience
+TOTAL_STEPS    = 6_000_000  # speed-control policy (simpler — converges faster)
 
 
 def make_env(rank: int, seed: int = 0):

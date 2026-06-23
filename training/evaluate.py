@@ -19,11 +19,8 @@ CHECKPOINT_DIR = "checkpoints"
 TEST_COMMANDS = [
     ("stand still",   0.0,  0.0),
     ("walk slow",     0.3,  0.0),
-    ("walk fast",     0.6,  0.0),
-    ("walk backward",-0.3,  0.0),
-    ("turn left",     0.0,  0.5),   # turn in place (what the curriculum trains)
-    ("turn right",    0.0, -0.5),
-    ("walk+turn L",   0.3,  0.3),   # combined (the hard case)
+    ("walk medium",   0.5,  0.0),
+    ("walk fast",     0.7,  0.0),
 ]
 
 

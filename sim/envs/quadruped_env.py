@@ -28,8 +28,8 @@ STAND_Z    = 0.24
 MIN_Z      = 0.10
 
 # Command sampling ranges (kept within what this 8-servo robot can hit stably)
-VX_RANGE   = (-0.3, 0.7)   # m/s  (backward .. forward; 0 = stop)
-YAW_RANGE  = (-0.6, 0.6)   # rad/s turn rate
+VX_RANGE   = (0.0, 0.7)    # m/s forward (no backward — unreliable on this body)
+YAW_RANGE  = (-0.5, 0.5)   # rad/s turn rate (realised as curved walking)
 STAND_PROB = 0.15          # fraction of episodes commanded to stand still
 
 
@@ -56,7 +56,10 @@ class QuadrupedEnv(gym.Env):
         self._max_foot_lift = 0.10
         self._group_A       = (0, 3)        # FL + RR
 
-        self._gait_period = 0.34      # quicker cadence supports more speed
+        # Gait cadence scales with commanded speed: step faster to go faster
+        # (a fixed cadence caps top speed).  freq in Hz, period = 1/freq.
+        self._freq_min    = 2.2       # Hz at a standstill / slow
+        self._freq_max    = 4.2       # Hz at top commanded speed
         self._phase       = 0.0
         self._cmd         = np.zeros(2, dtype=np.float32)  # [vx, yaw]
 
@@ -74,19 +77,12 @@ class QuadrupedEnv(gym.Env):
         self._cmd = np.array([vx, yaw], dtype=np.float32)
 
     def _sample_command(self):
-        # Curriculum: mostly ONE skill at a time so forward & turning don't
-        # have to be learned as a hard joint task; occasional gentle combos.
-        r = self.np_random.random()
-        if r < 0.15:                                   # stand still
+        # Speed control only: stand still, or walk forward at a sampled speed.
+        # Turning was dropped — this 8-servo body (no hip abduction) cannot
+        # turn without destabilising the gait; documented hardware limitation.
+        if self.np_random.random() < 0.15:             # stand still
             return np.zeros(2, dtype=np.float32)
-        elif r < 0.55:                                 # pure forward / backward
-            return np.array([self.np_random.uniform(*VX_RANGE), 0.0], np.float32)
-        elif r < 0.80:                                 # pure turn in place
-            return np.array([0.0, self.np_random.uniform(*YAW_RANGE)], np.float32)
-        else:                                          # gentle walk + turn
-            vx  = self.np_random.uniform(0.0, 0.5)
-            yaw = self.np_random.uniform(-0.4, 0.4)
-            return np.array([vx, yaw], np.float32)
+        return np.array([self.np_random.uniform(0.1, 0.7), 0.0], np.float32)
 
     # ------------------------------------------------------------------ obs
     def _get_obs(self):
@@ -149,7 +145,11 @@ class QuadrupedEnv(gym.Env):
         # Lateral drift only penalised when not turning (turning needs some vy).
         lateral_penalty    = 0.4 * abs(vy) * (1.0 - min(1.0, abs(cmd_yaw) / 0.3))
         # Unwanted yaw drift when going straight → keeps the line straight.
-        yaw_drift_penalty  = 0.6 * abs(yaw_rate) if abs(cmd_yaw) < 0.1 else 0.0
+        yaw_drift_penalty  = 1.2 * abs(yaw_rate) if abs(cmd_yaw) < 0.1 else 0.0
+        # Stillness: when commanded to stand, punish ALL motion hard so the
+        # policy can't drift/spin in place (the earlier instability).
+        stillness_penalty  = (1.5 * (abs(vx) + abs(vy) + abs(yaw_rate))
+                              if not moving else 0.0)
         roll_pitch_penalty = 0.3 * float(qvel[3] ** 2 + qvel[4] ** 2)
         smooth_penalty     = 0.005 * float(np.sum((action - self._prev_action) ** 2))
         energy_penalty     = 0.001 * float(np.sum(action ** 2))
@@ -162,8 +162,8 @@ class QuadrupedEnv(gym.Env):
         foot_lift_penalty *= 1.5
 
         return (track_reward + upright_reward + height_reward + alive + gait_reward
-                - lateral_penalty - yaw_drift_penalty - roll_pitch_penalty
-                - smooth_penalty - energy_penalty
+                - lateral_penalty - yaw_drift_penalty - stillness_penalty
+                - roll_pitch_penalty - smooth_penalty - energy_penalty
                 - joint_vel_penalty - foot_lift_penalty)
 
     # ------------------------------------------------------------------ done
@@ -198,7 +198,10 @@ class QuadrupedEnv(gym.Env):
         self.data.ctrl[:] = action
         for _ in range(self._sim_steps):
             mujoco.mj_step(self.model, self.data)
-        self._phase = (self._phase + self._ctrl_dt / self._gait_period) % 1.0
+        # advance gait clock at a speed-dependent cadence
+        speed_cmd = abs(float(self._cmd[0]))
+        freq = self._freq_min + (self._freq_max - self._freq_min) * min(speed_cmd / 0.7, 1.0)
+        self._phase = (self._phase + self._ctrl_dt * freq) % 1.0
 
         obs        = self._get_obs()
         reward     = self._compute_reward(action)
