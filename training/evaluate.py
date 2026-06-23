@@ -1,6 +1,6 @@
 """
-Headless evaluation — runs the trained policy without a viewer and prints
-objective gait metrics.  Run from the project root:
+Command-tracking evaluation — checks the policy obeys specific velocity
+commands (stand, slow, fast, turn).  Run from the project root:
     python training/evaluate.py
 """
 
@@ -15,62 +15,66 @@ from sim.envs import QuadrupedEnv
 
 CHECKPOINT_DIR = "checkpoints"
 
+# (label, cmd_vx, cmd_yaw)
+TEST_COMMANDS = [
+    ("stand still",   0.0,  0.0),
+    ("walk slow",     0.3,  0.0),
+    ("walk fast",     0.6,  0.0),
+    ("walk backward",-0.3,  0.0),
+    ("turn left",     0.0,  0.5),   # turn in place (what the curriculum trains)
+    ("turn right",    0.0, -0.5),
+    ("walk+turn L",   0.3,  0.3),   # combined (the hard case)
+]
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model",    default=f"{CHECKPOINT_DIR}/best_model")
-    parser.add_argument("--norm",     default=f"{CHECKPOINT_DIR}/vec_normalize.pkl")
-    parser.add_argument("--episodes", type=int, default=5)
+    parser.add_argument("--model", default=f"{CHECKPOINT_DIR}/best_model")
+    parser.add_argument("--norm",  default=f"{CHECKPOINT_DIR}/vec_normalize.pkl")
+    parser.add_argument("--steps", type=int, default=300)
     args = parser.parse_args()
 
-    raw_env = QuadrupedEnv()
-    vec_env = DummyVecEnv([lambda: raw_env])
+    raw = QuadrupedEnv()
+    venv = DummyVecEnv([lambda: raw])
     if os.path.exists(args.norm):
-        vec_env = VecNormalize.load(args.norm, vec_env)
-        vec_env.training = False
-        vec_env.norm_reward = False
+        venv = VecNormalize.load(args.norm, venv)
+        venv.training = False
+        venv.norm_reward = False
+    model = PPO.load(args.model, env=venv)
 
-    model = PPO.load(args.model, env=vec_env)
-
-    distances, speeds, heights, lengths, falls = [], [], [], [], 0
-
-    for ep in range(args.episodes):
-        obs = vec_env.reset()
-        ep_heights, steps, fell, last_x = [], 0, False, 0.0
-        while True:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, info = vec_env.step(action)
-            # info[0] holds the pre-reset terminal values on the done step
-            ep_heights.append(info[0]["torso_z"])
-            last_x = info[0]["x_pos"]
-            steps += 1
+    print(f"\n{'command':<14}{'asked':>16}{'measured':>18}{'result':>10}")
+    print("-" * 60)
+    passes = 0
+    for label, cvx, cyaw in TEST_COMMANDS:
+        venv.env_method("set_command", cvx, cyaw)
+        obs = venv.reset()
+        raw.set_command(cvx, cyaw)             # ensure command set post-reset
+        vxs, yaws, fell = [], [], False
+        for _ in range(args.steps):
+            a, _ = model.predict(obs, deterministic=True)
+            obs, _, done, info = venv.step(a)
+            # re-assert command each step (reset() would otherwise randomise it)
+            raw.set_command(cvx, cyaw)
+            vxs.append(info[0]["x_vel"])
+            yaws.append(info[0]["yaw_rate"])
             if done[0]:
                 fell = info[0]["torso_z"] < 0.10
                 break
-        distances.append(last_x)            # net forward displacement (m)
-        speeds.append(np.abs(last_x) / (steps * 0.02))  # avg fwd speed (m/s)
-        heights.append(np.mean(ep_heights))
-        lengths.append(steps)
-        falls += int(fell)
-        print(f"  ep {ep+1}: steps={steps:4d}  dist={last_x:+.2f}m  "
-              f"mean_z={np.mean(ep_heights):.3f}  {'FELL' if fell else 'survived'}")
+        mvx, myaw = np.mean(vxs[20:]), np.mean(yaws[20:])
+        vx_ok  = abs(mvx - cvx) < 0.25
+        yaw_ok = abs(myaw - cyaw) < 0.35
+        ok = (not fell) and vx_ok and yaw_ok
+        passes += int(ok)
+        print(f"{label:<14}{f'vx={cvx:+.1f} yaw={cyaw:+.1f}':>16}"
+              f"{f'vx={mvx:+.2f} yaw={myaw:+.2f}':>18}"
+              f"{'  PASS' if ok else '  FAIL':>10}")
 
-    print("\n" + "=" * 50)
-    print(f"Episodes:        {args.episodes}")
-    print(f"Mean ep length:  {np.mean(lengths):.0f} / 1000 steps")
-    print(f"Mean distance:   {np.mean(distances):+.2f} m forward")
-    print(f"Mean speed:      {np.mean(speeds):.2f} m/s")
-    print(f"Mean torso z:    {np.mean(heights):.3f}  (target 0.24)")
-    print(f"Falls:           {falls}/{args.episodes}")
-    survived = args.episodes - falls
-    walks = np.mean(distances) > 1.0 and survived >= args.episodes * 0.8
-    if walks:
-        print("VERDICT: Robot walks forward and stays upright. ✓")
-    elif survived >= args.episodes * 0.8:
-        print("VERDICT: Stays upright but barely moves — tune forward reward.")
+    print("-" * 60)
+    print(f"Passed {passes}/{len(TEST_COMMANDS)} command checks")
+    if passes >= len(TEST_COMMANDS) - 1:
+        print("VERDICT: Policy follows velocity commands. ✓")
     else:
-        print("VERDICT: Still unstable — needs more tuning.")
-    print("=" * 50)
+        print("VERDICT: Command tracking weak — needs tuning / more training.")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ from sim.envs import QuadrupedEnv
 CHECKPOINT_DIR = "checkpoints"
 LOG_DIR        = "logs"
 N_ENVS         = 4          # parallel workers (safe on M-series Mac)
-TOTAL_STEPS    = 3_000_000  # ~30–60 min on M2; crank to 5M for better gait
+TOTAL_STEPS    = 10_000_000  # curriculum (forward + turn) needs more experience
 
 
 def make_env(rank: int, seed: int = 0):

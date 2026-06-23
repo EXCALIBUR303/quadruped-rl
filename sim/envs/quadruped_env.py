@@ -1,14 +1,17 @@
 """
-Gymnasium environment for the 8-servo quadruped (2 joints per leg × 4 legs).
+Command-conditioned Gymnasium environment for the 8-servo quadruped.
 
-Obs (29) = [torso_z(1), quat(4), linvel(3), angvel(3),
-            jnt_pos(8), jnt_vel(8), gait_clock(2)]
+The policy is given a velocity COMMAND each episode and rewarded for tracking
+it, so the same network can stand, walk at any speed, and turn — which is what
+the voice/LLM layer drives later.
+
+Obs (31) = [torso_z(1), quat(4), linvel(3), angvel(3),
+            jnt_pos(8), jnt_vel(8), gait_clock(2), command(2)]
 Action (8) = normalised motor commands matching real servos 1-to-1.
+Command  = [cmd_vx (m/s forward), cmd_yaw (rad/s turn)]
 
-A periodic "gait clock" drives a trot rhythm: diagonal foot pairs
-(FL+RR) and (FR+RL) alternate stance/swing.  The policy sees the clock
-(sin φ, cos φ) and is rewarded for matching the trot contact schedule,
-which yields a clean, natural four-legged walk instead of a lopsided hop.
+A periodic gait clock drives a diagonal trot (FL+RR / FR+RL) when moving and
+relaxes to a 4-foot stand when commanded to stop.
 """
 
 from pathlib import Path
@@ -18,11 +21,16 @@ from gymnasium import spaces
 import mujoco
 
 XML_PATH   = Path(__file__).parent.parent / "assets" / "quadruped.xml"
-N_JOINTS   = 8     # 2 per leg × 4 legs
-N_FJ_Q     = 7     # freejoint: pos(3) + quat(4)
-N_FJ_V     = 6     # freejoint: linvel(3) + angvel(3)
-STAND_Z    = 0.24  # target torso height the policy should hold
-MIN_Z      = 0.10  # below this → episode over (fell)
+N_JOINTS   = 8
+N_FJ_Q     = 7
+N_FJ_V     = 6
+STAND_Z    = 0.24
+MIN_Z      = 0.10
+
+# Command sampling ranges (kept within what this 8-servo robot can hit stably)
+VX_RANGE   = (-0.3, 0.7)   # m/s  (backward .. forward; 0 = stop)
+YAW_RANGE  = (-0.6, 0.6)   # rad/s turn rate
+STAND_PROB = 0.15          # fraction of episodes commanded to stand still
 
 
 class QuadrupedEnv(gym.Env):
@@ -35,58 +43,62 @@ class QuadrupedEnv(gym.Env):
         self.render_mode  = render_mode
         self._renderer    = None
         self._ctrl_dt     = ctrl_dt
-        self._sim_steps   = max(1, round(ctrl_dt / self.model.opt.timestep))  # 4
+        self._sim_steps   = max(1, round(ctrl_dt / self.model.opt.timestep))
 
-        # Get keyframe standing pose
         key_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_KEY, "stand")
         self._stand_qpos = self.model.key_qpos[key_id].copy()
 
-        # Foot geom ids + radius — used for contact detection & clearance reward
         self._foot_gids = [
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{leg}_foot")
             for leg in ["FL", "FR", "RL", "RR"]
         ]
         self._foot_r        = float(self.model.geom_size[self._foot_gids[0]][0])
-        self._max_foot_lift = 0.10   # m — swing-foot clearance cap
-        # Trot: diagonal pairs.  group A = FL(0)+RR(3), group B = FR(1)+RL(2).
-        self._group_A = (0, 3)
+        self._max_foot_lift = 0.10
+        self._group_A       = (0, 3)        # FL + RR
 
-        # Gait clock
-        self._gait_period = 0.40     # s per full stride cycle
+        self._gait_period = 0.34      # quicker cadence supports more speed
         self._phase       = 0.0
+        self._cmd         = np.zeros(2, dtype=np.float32)  # [vx, yaw]
 
-        n_obs = 1 + 4 + 3 + 3 + N_JOINTS + N_JOINTS + 2  # 29
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(n_obs,), dtype=np.float32
-        )
-        self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(N_JOINTS,), dtype=np.float32
-        )
+        n_obs = 1 + 4 + 3 + 3 + N_JOINTS + N_JOINTS + 2 + 2  # 31
+        self.observation_space = spaces.Box(-np.inf, np.inf, (n_obs,), np.float32)
+        self.action_space      = spaces.Box(-1.0, 1.0, (N_JOINTS,), np.float32)
 
-        self._step         = 0
-        self._max_steps    = 1000
-        self._target_speed = 0.9   # m/s — forward reward caps here
-        self._prev_action  = np.zeros(N_JOINTS, dtype=np.float32)
+        self._step        = 0
+        self._max_steps   = 1000
+        self._prev_action = np.zeros(N_JOINTS, dtype=np.float32)
+
+    # ------------------------------------------------------------ command API
+    def set_command(self, vx, yaw):
+        """Live command setter — used by the control API / voice layer."""
+        self._cmd = np.array([vx, yaw], dtype=np.float32)
+
+    def _sample_command(self):
+        # Curriculum: mostly ONE skill at a time so forward & turning don't
+        # have to be learned as a hard joint task; occasional gentle combos.
+        r = self.np_random.random()
+        if r < 0.15:                                   # stand still
+            return np.zeros(2, dtype=np.float32)
+        elif r < 0.55:                                 # pure forward / backward
+            return np.array([self.np_random.uniform(*VX_RANGE), 0.0], np.float32)
+        elif r < 0.80:                                 # pure turn in place
+            return np.array([0.0, self.np_random.uniform(*YAW_RANGE)], np.float32)
+        else:                                          # gentle walk + turn
+            vx  = self.np_random.uniform(0.0, 0.5)
+            yaw = self.np_random.uniform(-0.4, 0.4)
+            return np.array([vx, yaw], np.float32)
 
     # ------------------------------------------------------------------ obs
     def _get_obs(self):
-        qpos = self.data.qpos
-        qvel = self.data.qvel
+        qpos, qvel = self.data.qpos, self.data.qvel
         clock = np.array([np.sin(2 * np.pi * self._phase),
                           np.cos(2 * np.pi * self._phase)])
         return np.concatenate([
-            qpos[2:3],           # torso z
-            qpos[3:7],           # quaternion
-            qvel[0:3],           # linear velocity
-            qvel[3:6],           # angular velocity
-            qpos[N_FJ_Q:],       # 8 joint angles
-            qvel[N_FJ_V:],       # 8 joint velocities
-            clock,               # gait clock (sin, cos)
+            qpos[2:3], qpos[3:7], qvel[0:3], qvel[3:6],
+            qpos[N_FJ_Q:], qvel[N_FJ_V:], clock, self._cmd,
         ]).astype(np.float32)
 
-    # ------------------------------------------------------------------ helpers
     def _foot_contacts(self):
-        """Bool array: is each foot's bottom within 2.5 cm of the floor?"""
         return np.array([
             (float(self.data.geom_xpos[g][2]) - self._foot_r) < 0.025
             for g in self._foot_gids
@@ -94,49 +106,63 @@ class QuadrupedEnv(gym.Env):
 
     # ------------------------------------------------------------------ reward
     def _compute_reward(self, action):
-        qpos = self.data.qpos
-        qvel = self.data.qvel
+        qpos, qvel = self.data.qpos, self.data.qvel
+        vx, vy   = float(qvel[0]), float(qvel[1])
+        yaw_rate = float(qvel[5])
+        z        = qpos[2]
+        qx, qy   = qpos[4], qpos[5]
+        up = 1.0 - 2.0 * float(qx * qx + qy * qy)
 
-        x_vel   = qvel[0]
-        y_vel   = qvel[1]
-        z       = qpos[2]
-        qx, qy  = qpos[4], qpos[5]
-        up = 1.0 - 2.0 * float(qx * qx + qy * qy)   # 1 level, 0 tipped 90°
+        cmd_vx, cmd_yaw = float(self._cmd[0]), float(self._cmd[1])
+        moving = (abs(cmd_vx) > 0.1) or (abs(cmd_yaw) > 0.1)
 
-        forward_reward = 2.0 * min(float(x_vel), self._target_speed)
-        upright_reward = 1.5 * max(0.0, up)
-        height_reward  = 1.0 * max(0.0, 1.0 - abs(z - STAND_Z) / STAND_Z)
-        alive          = 0.5
+        # ---- Command tracking (the core objective) ------------------------
+        # Linear directional-progress term pays for velocity TOWARD the command
+        # (capped at the target, zero when standing) → gradient from a standstill
+        # and no "do nothing" trap.  An exp precision bonus locks onto the target.
+        prog_vx  = min(vx * np.sign(cmd_vx), abs(cmd_vx)) if abs(cmd_vx) > 0.1 else 0.0
+        prog_yaw = min(yaw_rate * np.sign(cmd_yaw), abs(cmd_yaw)) if abs(cmd_yaw) > 0.1 else 0.0
+        lin_track = np.exp(-4.0 * (vx - cmd_vx) ** 2)
+        yaw_track = np.exp(-4.0 * (yaw_rate - cmd_yaw) ** 2)
+        track_reward = (5.0 * prog_vx + 1.5 * lin_track
+                        + 2.5 * prog_yaw + 1.0 * yaw_track)
 
-        # ---- Gait-schedule reward: follow the trot rhythm ------------------
-        # Group A in stance during first half of the cycle, group B second half.
-        # SYMMETRIC: +reward for the right foot state, -penalty for the wrong one,
-        # so the policy cannot cheaply freeze a leg planted through its swing.
-        contacts  = self._foot_contacts()
-        A_stance  = self._phase < 0.5
-        gait_reward = 0.0
-        for i in range(4):
-            in_A          = i in self._group_A
-            should_stance = A_stance if in_A else (not A_stance)
-            correct       = bool(contacts[i]) == should_stance
-            gait_reward  += 0.6 if correct else -0.6   # max +2.4 / min -2.4
+        # Free posture rewards kept small so standing is not its own attractor.
+        upright_reward = 0.5 * max(0.0, up)
+        height_reward  = 0.5 * max(0.0, 1.0 - abs(z - STAND_Z) / STAND_Z)
+        alive          = 0.3
 
-        # ---- Penalties (kept light so legs are free to step) --------------
-        lateral_penalty    = 0.5 * abs(float(y_vel))
-        yaw_penalty        = 0.3 * abs(float(qvel[5]))
+        # ---- Gait reward: trot when moving, stand when stopped ------------
+        contacts = self._foot_contacts()
+        if moving:
+            A_stance = self._phase < 0.5
+            gait_reward = 0.0
+            for i in range(4):
+                should_stance = (A_stance if i in self._group_A else not A_stance)
+                correct = bool(contacts[i]) == should_stance
+                gait_reward += 0.4 if correct else -0.4
+        else:
+            # standing: reward all four feet planted
+            gait_reward = 0.5 * (int(contacts.sum()) - 2)   # +1 at 4 feet, -1 at 0
+
+        # ---- Penalties ----------------------------------------------------
+        # Lateral drift only penalised when not turning (turning needs some vy).
+        lateral_penalty    = 0.4 * abs(vy) * (1.0 - min(1.0, abs(cmd_yaw) / 0.3))
+        # Unwanted yaw drift when going straight → keeps the line straight.
+        yaw_drift_penalty  = 0.6 * abs(yaw_rate) if abs(cmd_yaw) < 0.1 else 0.0
         roll_pitch_penalty = 0.3 * float(qvel[3] ** 2 + qvel[4] ** 2)
-        smooth_penalty     = 0.01  * float(np.sum((action - self._prev_action) ** 2))
+        smooth_penalty     = 0.005 * float(np.sum((action - self._prev_action) ** 2))
         energy_penalty     = 0.001 * float(np.sum(action ** 2))
-        joint_vel_penalty  = 0.0008 * float(np.sum(self.data.qvel[N_FJ_V:] ** 2))
+        joint_vel_penalty  = 0.0001 * float(np.sum(qvel[N_FJ_V:] ** 2))
 
         foot_lift_penalty = 0.0
         for g in self._foot_gids:
             fz = float(self.data.geom_xpos[g][2]) - self._foot_r
             foot_lift_penalty += max(0.0, fz - self._max_foot_lift)
-        foot_lift_penalty *= 3.0
+        foot_lift_penalty *= 1.5
 
-        return (forward_reward + upright_reward + height_reward + alive + gait_reward
-                - lateral_penalty - yaw_penalty - roll_pitch_penalty
+        return (track_reward + upright_reward + height_reward + alive + gait_reward
+                - lateral_penalty - yaw_drift_penalty - roll_pitch_penalty
                 - smooth_penalty - energy_penalty
                 - joint_vel_penalty - foot_lift_penalty)
 
@@ -151,25 +177,27 @@ class QuadrupedEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
-
         self.data.qpos[:] = self._stand_qpos.copy()
         self.data.qpos[N_FJ_Q:] += self.np_random.uniform(-0.05, 0.05, size=N_JOINTS)
-
         mujoco.mj_forward(self.model, self.data)
+
         self._step        = 0
-        self._phase       = float(self.np_random.uniform(0, 1))  # random gait phase
+        self._phase       = float(self.np_random.uniform(0, 1))
         self._prev_action = np.zeros(N_JOINTS, dtype=np.float32)
+
+        # Command: explicit override via options, else random
+        if options and "command" in options:
+            self._cmd = np.array(options["command"], dtype=np.float32)
+        else:
+            self._cmd = self._sample_command()
         return self._get_obs(), {}
 
     # ------------------------------------------------------------------ step
     def step(self, action):
         action = np.clip(action, -1.0, 1.0)
         self.data.ctrl[:] = action
-
         for _ in range(self._sim_steps):
             mujoco.mj_step(self.model, self.data)
-
-        # advance gait clock
         self._phase = (self._phase + self._ctrl_dt / self._gait_period) % 1.0
 
         obs        = self._get_obs()
@@ -183,6 +211,9 @@ class QuadrupedEnv(gym.Env):
             "x_pos":   float(self.data.qpos[0]),
             "torso_z": float(self.data.qpos[2]),
             "x_vel":   float(self.data.qvel[0]),
+            "yaw_rate": float(self.data.qvel[5]),
+            "cmd_vx":  float(self._cmd[0]),
+            "cmd_yaw": float(self._cmd[1]),
         }
         return obs, reward, terminated, truncated, info
 
