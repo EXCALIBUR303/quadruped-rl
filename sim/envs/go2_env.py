@@ -72,10 +72,17 @@ class Go2Env(gym.Env):
         self._lock_cmd = True            # don't auto-resample when driven externally
 
     def _sample_command(self):
-        if self.np_random.random() < STAND_PROB:
+        # Walk-first curriculum: most episodes are forward walking (the hard
+        # skill to discover); a minority add a gentle turn so the hip-abduction
+        # joints still get exercised. Turning is sharpened in a 2nd phase.
+        r = self.np_random.random()
+        if r < 0.12:                                   # stand still
             return np.zeros(3)
-        return np.array([self.np_random.uniform(*VX_RANGE), 0.0,
-                         self.np_random.uniform(*YAW_RANGE)])
+        elif r < 0.82:                                 # forward at various speeds
+            return np.array([self.np_random.uniform(0.3, 1.0), 0.0, 0.0])
+        else:                                          # gentle walk + turn
+            return np.array([self.np_random.uniform(0.3, 0.6), 0.0,
+                             self.np_random.uniform(-0.5, 0.5)])
 
     # ------------------------------------------------------------ helpers
     def _base_frame(self):
@@ -112,7 +119,7 @@ class Go2Env(gym.Env):
         # local optimum that pure exp kernels fall into with few parallel envs.
         prog_lin = min(vx * np.sign(cmd_vx), abs(cmd_vx)) if abs(cmd_vx) > 0.1 else 0.0
         prog_ang = min(wz * np.sign(cmd_yaw), abs(cmd_yaw)) if abs(cmd_yaw) > 0.1 else 0.0
-        progress = 2.5 * prog_lin + 2.0 * prog_ang
+        progress = 3.0 * prog_lin + 2.0 * prog_ang
 
         # exp precision bonus on top (locks onto the exact target)
         lin_err = (vx - cmd_vx) ** 2 + (vy - cmd_vy) ** 2
@@ -124,10 +131,10 @@ class Go2Env(gym.Env):
         pen_ang_xy   = 0.05 * (ang[0] ** 2 + ang[1] ** 2)
         pen_orient   = 5.0  * (grav[0] ** 2 + grav[1] ** 2)        # 0 when level
         pen_height   = 8.0  * (self.data.qpos[2] - 0.30) ** 2      # stand tall (~0.30 m)
-        pen_torque   = 0.0002 * np.sum(torque ** 2)
-        pen_actrate  = 0.01 * np.sum((action - self._last_action) ** 2)
+        pen_torque   = 0.0001 * np.sum(torque ** 2)
+        pen_actrate  = 0.005 * np.sum((action - self._last_action) ** 2)
         dof_acc      = (self._last_dof_vel - self.data.qvel[6:]) / self.dt
-        pen_dof_acc  = 2.5e-7 * np.sum(dof_acc ** 2)
+        pen_dof_acc  = 1.0e-7 * np.sum(dof_acc ** 2)
 
         # feet air time — reward proper swing duration (clean stepping)
         contacts = self._foot_contacts()
@@ -153,7 +160,7 @@ class Go2Env(gym.Env):
     def _terminated(self):
         _, _, grav = self._base_frame()
         z = self.data.qpos[2]
-        return bool(z < 0.18 or grav[2] > -0.5)   # collapsed or tipped > 60°
+        return bool(z < 0.15 or grav[2] > -0.3)   # only end on a real fall (less twitchy)
 
     # ------------------------------------------------------------ reset
     def reset(self, *, seed=None, options=None):
