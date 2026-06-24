@@ -106,10 +106,18 @@ class Go2Env(gym.Env):
         vx, vy, wz = lin[0], lin[1], ang[2]
         cmd_vx, cmd_vy, cmd_yaw = self._cmd
 
-        # tracking (exp kernels, legged_gym style)
+        # Linear directional-progress reward — pays for velocity TOWARD the
+        # command (capped at target, zero when standing). Dense gradient from a
+        # standstill that defeats the "stand still and collect partial tracking"
+        # local optimum that pure exp kernels fall into with few parallel envs.
+        prog_lin = min(vx * np.sign(cmd_vx), abs(cmd_vx)) if abs(cmd_vx) > 0.1 else 0.0
+        prog_ang = min(wz * np.sign(cmd_yaw), abs(cmd_yaw)) if abs(cmd_yaw) > 0.1 else 0.0
+        progress = 2.5 * prog_lin + 2.0 * prog_ang
+
+        # exp precision bonus on top (locks onto the exact target)
         lin_err = (vx - cmd_vx) ** 2 + (vy - cmd_vy) ** 2
-        track_lin = 1.5 * np.exp(-lin_err / 0.25)
-        track_ang = 0.8 * np.exp(-(wz - cmd_yaw) ** 2 / 0.25)
+        track_lin = 1.0 * np.exp(-lin_err / 0.25)
+        track_ang = 0.5 * np.exp(-(wz - cmd_yaw) ** 2 / 0.25)
 
         # penalties
         pen_vz       = 2.0  * lin[2] ** 2
@@ -136,7 +144,7 @@ class Go2Env(gym.Env):
         else:
             stand_bonus = 0.0
 
-        reward = (track_lin + track_ang + air_reward + stand_bonus
+        reward = (progress + track_lin + track_ang + air_reward + stand_bonus
                   - pen_vz - pen_ang_xy - pen_orient - pen_height - pen_torque
                   - pen_actrate - pen_dof_acc)
         return float(reward)

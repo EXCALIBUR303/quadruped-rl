@@ -49,7 +49,7 @@ def main():
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.0,
+        ent_coef=0.005,          # encourage exploration (escape standing-still)
         learning_rate=3e-4,
         vf_coef=0.5,
         max_grad_norm=1.0,
