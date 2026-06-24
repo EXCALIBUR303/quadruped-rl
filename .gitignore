@@ -3,7 +3,9 @@ __pycache__/
 *.pyc
 *.egg-info/
 logs/
+logs_go2/
 checkpoints/
+checkpoints_go2/
 models/
 *.png
 *.mp4

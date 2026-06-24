@@ -30,9 +30,9 @@ def voice_loop(ctrl):
         if any(w in text.lower() for w in QUIT_WORDS):
             voice.speak("Goodbye!")
             os._exit(0)
-        cmd = nlu.parse_command(text, current_vx=ctrl.speed)
+        cmd = nlu.parse_command(text, current_vx=ctrl.speed, current_yaw=ctrl.turn)
         ctrl.set_command(cmd["vx"], cmd["yaw"])
-        print(f"  -> vx={cmd['vx']:.2f}  | {cmd['reply']}")
+        print(f"  -> vx={cmd['vx']:+.2f} yaw={cmd['yaw']:+.2f}  | {cmd['reply']}")
         voice.speak(cmd["reply"])
 
 
