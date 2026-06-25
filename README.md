@@ -24,19 +24,30 @@ viewer and replies out loud. Everything runs locally on a Mac. No hardware.
 - A **voice layer** that turns natural speech into commands and talks back with
   personality — all local & offline.
 
-## Results (`evaluate_v2.py`)
+## Control: PD position control
 
-| Command | Asked | Measured |
-|---|---|---|
-| stand still | 0 | 0.00 ✅ |
-| walk slow | 0.4 m/s | 0.39 ✅ |
-| walk fast | 0.8 m/s | 0.85 ✅ |
-| turn left | +0.6 rad/s | +0.36 ✅ |
-| turn right | −0.6 rad/s | −0.40 ✅ |
-| walk + turn | 0.4 / 0.4 | 0.16 / 0.25 ✅ |
+The policy does **not** output torques. It outputs **target joint angles**
+(offsets from a standing pose); a PD loop (`τ = Kp·(target−q) − Kd·q̇`,
+Kp=25, Kd=0.7) turns them into smooth motor torques each sim step. This is the
+standard, stable way to train legged robots — raw torque control led to a
+collapsed, foot-sliding gait that still tracked velocity (a trap the old
+velocity-only eval failed to catch).
 
-**6/6.** Clean trot (~2.5 feet on the ground, body held level within ±2°),
-turns both directions. See `robot_demo.mp4`.
+## Results (`evaluate_v2.py` — checks velocity **and** posture **and** foot-slip)
+
+| Command | Asked | Measured | Height | Slip |
+|---|---|---|---|---|
+| stand still | 0 | 0.00 | 0.27 | 0.02 ✅ |
+| walk slow | 0.3 m/s | 0.31 | 0.28 | 0.20 ✅ |
+| walk fast | 0.6 m/s | 0.62 | 0.28 | 0.29 ◑ |
+| turn left | +0.6 rad/s | +0.64 | 0.27 | 0.16 ✅ |
+| turn right | −0.6 rad/s | −0.67 | 0.27 | 0.12 ✅ |
+| walk + turn | 0.4 / 0.4 | 0.40 / 0.33 | 0.28 | 0.27 ◑ |
+
+Stands tall (0.27 m), turns cleanly both ways, walks at the commanded speed.
+Forward foot-slip is low (clean step at slow speed; a slight drag at top
+speed, ◑). The eval deliberately scores foot-slip and height so a collapsed
+or sliding policy cannot pass on velocity alone. See `robot_demo.mp4`.
 
 ## Tech stack
 
