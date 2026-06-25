@@ -18,6 +18,15 @@ import numpy as np
 SAMPLE_RATE = 16000          # Whisper expects 16 kHz
 _model = None                # lazy-loaded Whisper model
 
+# Robot voice. Swap VOICE for a different macOS voice:
+#   "Fred"    – classic robotic computer voice (default)
+#   "Zarvox"  – full sci-fi robot (more synthetic)
+#   "Daniel"  – calm British AI-assistant
+#   "Samantha"– clear neutral
+# List all with:  say -v '?'
+VOICE = "Fred"
+RATE  = 190                  # words per minute
+
 
 def _get_model():
     global _model
@@ -33,7 +42,7 @@ def speak(text):
     """Speak text aloud using the macOS `say` command (blocking)."""
     text = (text or "").replace('"', "'")
     if text:
-        os.system(f'say "{text}"')
+        os.system(f'say -v "{VOICE}" -r {RATE} "{text}"')
 
 
 # ---------------------------------------------------------------- STT

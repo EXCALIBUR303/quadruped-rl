@@ -4,8 +4,10 @@ __pycache__/
 *.egg-info/
 logs/
 logs_go2/
+logs_v2/
 checkpoints/
 checkpoints_go2/
+checkpoints_v2/
 models/
 *.png
 *.mp4

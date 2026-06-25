@@ -8,4 +8,6 @@ rich
 ollama              # Python client; also needs the Ollama app + `ollama pull llama3.2:3b`
 faster-whisper      # speech-to-text
 sounddevice         # microphone capture
+imageio             # rendering screenshots / walking video
+imageio-ffmpeg      # mp4 encoding for the walking video
 # text-to-speech uses the macOS built-in `say` command (no package needed)

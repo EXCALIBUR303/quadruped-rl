@@ -1,11 +1,11 @@
 """
-Stage B — RobotController for the 8-joint quadruped: loads the trained speed
+Stage B — RobotController for the 12-joint robot (robot_v2): loads the trained
 policy and runs it in the MuJoCo viewer in real time, exposing a live
-set_command(vx) that the voice layer (or keyboard) drives.
+set_command(vx, yaw) that the voice layer (or keyboard) drives.
 
 Standalone keyboard demo (macOS needs mjpython for the viewer):
     mjpython brain/controller.py
-Keys: a number 0.0-0.7 = forward speed | 's' = stop | 'q' = quit
+Keys: number = forward speed | 'l'/'r' = turn left/right | 's' = stop | 'q' = quit
 """
 
 import sys, os, time, threading
@@ -17,9 +17,9 @@ import mujoco.viewer
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-from sim.envs import QuadrupedEnv
+from sim.envs import RobotV2Env
 
-CKPT = os.path.join(os.path.dirname(__file__), "..", "checkpoints")
+CKPT = os.path.join(os.path.dirname(__file__), "..", "checkpoints_v2")
 
 
 class RobotController:
@@ -27,7 +27,7 @@ class RobotController:
         model_path = model_path or os.path.join(CKPT, "best_model")
         norm_path  = norm_path  or os.path.join(CKPT, "vec_normalize.pkl")
 
-        self.raw = QuadrupedEnv(render_mode="human")
+        self.raw = RobotV2Env(render_mode="human")
         venv = DummyVecEnv([lambda: self.raw])
         self.venv = VecNormalize.load(norm_path, venv)
         self.venv.training = False
@@ -35,19 +35,16 @@ class RobotController:
         self.model = PPO.load(model_path, env=self.venv)
 
         self.obs  = self.venv.reset()
-        self._cmd = [0.0, 0.0]                       # vx, yaw (yaw unused: no turning)
+        self._cmd = [0.0, 0.0]                       # vx, yaw
         self.raw.set_command(0.0, 0.0)
 
     def set_command(self, vx, yaw=0.0):
         self._cmd = [float(vx), float(yaw)]
 
     @property
-    def speed(self):
-        return self._cmd[0]
-
+    def speed(self): return self._cmd[0]
     @property
-    def turn(self):
-        return self._cmd[1]
+    def turn(self):  return self._cmd[1]
 
     def step(self):
         self.raw.set_command(self._cmd[0], self._cmd[1])
@@ -62,7 +59,8 @@ class RobotController:
         with mujoco.viewer.launch_passive(self.raw.model, self.raw.data) as v:
             v.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
             v.cam.trackbodyid = self.raw.model.body("torso").id
-            v.cam.distance = 1.5
+            v.cam.distance = 1.6
+            v.cam.elevation = -18
             if on_start:
                 on_start()
             while v.is_running():
@@ -79,7 +77,7 @@ if __name__ == "__main__":
 
     def keyboard_loop():
         print("\n--- keyboard control ---")
-        print("number 0.0-0.7 = forward speed | 's' = stop | 'q' = quit")
+        print("number = forward speed | 'l'/'r' = turn | 's' = stop | 'q' = quit")
         while True:
             try:
                 cmd = input("> ").strip().lower()
@@ -88,13 +86,17 @@ if __name__ == "__main__":
             if cmd == "q":
                 os._exit(0)
             elif cmd == "s":
-                ctrl.set_command(0.0); print("  stop")
+                ctrl.set_command(0.0, 0.0); print("  stop")
+            elif cmd == "l":
+                ctrl.set_command(ctrl.speed, 0.6); print("  turn left")
+            elif cmd == "r":
+                ctrl.set_command(ctrl.speed, -0.6); print("  turn right")
             else:
                 try:
-                    vx = max(0.0, min(0.7, float(cmd)))
-                    ctrl.set_command(vx); print(f"  vx = {vx:.2f}")
+                    vx = max(-0.3, min(0.8, float(cmd)))
+                    ctrl.set_command(vx, 0.0); print(f"  vx = {vx:.2f}")
                 except ValueError:
-                    print("  enter a number 0.0-0.7, 's', or 'q'")
+                    print("  number | 'l' | 'r' | 's' | 'q'")
 
     threading.Thread(target=keyboard_loop, daemon=True).start()
     ctrl.run_viewer()
