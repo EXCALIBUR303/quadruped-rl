@@ -136,7 +136,7 @@ class QuadrupedEnv(gym.Env):
             for i in range(4):
                 should_stance = (A_stance if i in self._group_A else not A_stance)
                 correct = bool(contacts[i]) == should_stance
-                gait_reward += 0.4 if correct else -0.4
+                gait_reward += 0.5 if correct else -0.5
         else:
             # standing: reward all four feet planted
             gait_reward = 0.5 * (int(contacts.sum()) - 2)   # +1 at 4 feet, -1 at 0
@@ -147,8 +147,9 @@ class QuadrupedEnv(gym.Env):
         # Unwanted yaw drift when going straight → keeps the line straight.
         yaw_drift_penalty  = 1.2 * abs(yaw_rate) if abs(cmd_yaw) < 0.1 else 0.0
         # Stillness: when commanded to stand, punish ALL motion hard so the
-        # policy can't drift/spin in place (the earlier instability).
-        stillness_penalty  = (1.5 * (abs(vx) + abs(vy) + abs(yaw_rate))
+        # policy stops crisply (kills the "coast 1-2 extra steps" stop-lag)
+        # and can't drift/spin in place.
+        stillness_penalty  = (3.0 * (abs(vx) + abs(vy) + abs(yaw_rate))
                               if not moving else 0.0)
         roll_pitch_penalty = 0.3 * float(qvel[3] ** 2 + qvel[4] ** 2)
         smooth_penalty     = 0.005 * float(np.sum((action - self._prev_action) ** 2))

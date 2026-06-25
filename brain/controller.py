@@ -1,11 +1,11 @@
 """
-Stage B — RobotController for the Unitree Go2: loads the trained policy and
-runs it in the MuJoCo viewer in real time, exposing live set_command(vx, yaw)
-that the voice layer (or keyboard) drives.
+Stage B — RobotController for the 8-joint quadruped: loads the trained speed
+policy and runs it in the MuJoCo viewer in real time, exposing a live
+set_command(vx) that the voice layer (or keyboard) drives.
 
 Standalone keyboard demo (macOS needs mjpython for the viewer):
     mjpython brain/controller.py
-Keys: a number = forward speed | 'l'/'r' = turn left/right | 's' = stop | 'q' = quit
+Keys: a number 0.0-0.7 = forward speed | 's' = stop | 'q' = quit
 """
 
 import sys, os, time, threading
@@ -17,9 +17,9 @@ import mujoco.viewer
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-from sim.envs import Go2Env
+from sim.envs import QuadrupedEnv
 
-CKPT = os.path.join(os.path.dirname(__file__), "..", "checkpoints_go2")
+CKPT = os.path.join(os.path.dirname(__file__), "..", "checkpoints")
 
 
 class RobotController:
@@ -27,7 +27,7 @@ class RobotController:
         model_path = model_path or os.path.join(CKPT, "best_model")
         norm_path  = norm_path  or os.path.join(CKPT, "vec_normalize.pkl")
 
-        self.raw = Go2Env(render_mode="human")
+        self.raw = QuadrupedEnv(render_mode="human")
         venv = DummyVecEnv([lambda: self.raw])
         self.venv = VecNormalize.load(norm_path, venv)
         self.venv.training = False
@@ -35,7 +35,7 @@ class RobotController:
         self.model = PPO.load(model_path, env=self.venv)
 
         self.obs  = self.venv.reset()
-        self._cmd = [0.0, 0.0]                       # vx, yaw
+        self._cmd = [0.0, 0.0]                       # vx, yaw (yaw unused: no turning)
         self.raw.set_command(0.0, 0.0)
 
     def set_command(self, vx, yaw=0.0):
@@ -61,8 +61,8 @@ class RobotController:
         dt = 1.0 / hz
         with mujoco.viewer.launch_passive(self.raw.model, self.raw.data) as v:
             v.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
-            v.cam.trackbodyid = self.raw.model.body("base").id
-            v.cam.distance = 2.0
+            v.cam.trackbodyid = self.raw.model.body("torso").id
+            v.cam.distance = 1.5
             if on_start:
                 on_start()
             while v.is_running():
@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     def keyboard_loop():
         print("\n--- keyboard control ---")
-        print("number = forward speed | 'l'/'r' = turn | 's' = stop | 'q' = quit")
+        print("number 0.0-0.7 = forward speed | 's' = stop | 'q' = quit")
         while True:
             try:
                 cmd = input("> ").strip().lower()
@@ -88,17 +88,13 @@ if __name__ == "__main__":
             if cmd == "q":
                 os._exit(0)
             elif cmd == "s":
-                ctrl.set_command(0.0, 0.0); print("  stop")
-            elif cmd == "l":
-                ctrl.set_command(ctrl.speed, 0.8); print("  turn left")
-            elif cmd == "r":
-                ctrl.set_command(ctrl.speed, -0.8); print("  turn right")
+                ctrl.set_command(0.0); print("  stop")
             else:
                 try:
-                    vx = max(-1.0, min(1.5, float(cmd)))
-                    ctrl.set_command(vx, 0.0); print(f"  vx = {vx:.2f}")
+                    vx = max(0.0, min(0.7, float(cmd)))
+                    ctrl.set_command(vx); print(f"  vx = {vx:.2f}")
                 except ValueError:
-                    print("  number | 'l' | 'r' | 's' | 'q'")
+                    print("  enter a number 0.0-0.7, 's', or 'q'")
 
     threading.Thread(target=keyboard_loop, daemon=True).start()
     ctrl.run_viewer()
