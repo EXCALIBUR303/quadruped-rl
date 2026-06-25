@@ -19,7 +19,7 @@ from sim.envs import RobotV2Env
 CHECKPOINT_DIR = "checkpoints_v2"
 LOG_DIR        = "logs_v2"
 N_ENVS         = 8
-TOTAL_STEPS    = 12_000_000
+TOTAL_STEPS    = 19_000_000   # 12M base + ~7M fine-tune for clean stepping
 
 
 def make_env(rank, seed=0):

@@ -133,15 +133,19 @@ class RobotV2Env(gym.Env):
             if contacts[i]:
                 slip += np.linalg.norm(foot_xy[i] - self._prev_foot_xy[i]) / self._ctrl_dt
         self._prev_foot_xy = foot_xy
-        slip_penalty = 0.6 * slip
+        slip_penalty = 1.2 * slip                       # punish dragging harder
 
-        # gait clock (trot when moving / plant when stopped)
+        # gait clock (trot when moving / plant when stopped) + swing clearance
         if moving:
             A_stance = self._phase < 0.5
             gait = 0.0
+            swing_clear = 0.0
             for i in range(4):
-                should = (A_stance if i in self._group_A else not A_stance)
-                gait += 0.4 if (bool(contacts[i]) == should) else -0.4
+                should_stance = (A_stance if i in self._group_A else not A_stance)
+                gait += 0.5 if (bool(contacts[i]) == should_stance) else -0.5
+                if not should_stance:                   # this foot should be swinging
+                    swing_clear += min(max(foot_z[i], 0.0), 0.07)
+            gait += 6.0 * swing_clear                    # LIFT swing feet (anti-drag)
         else:
             gait = 0.5 * (int(contacts.sum()) - 2)
 
