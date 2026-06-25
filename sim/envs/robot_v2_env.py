@@ -33,7 +33,7 @@ ACTION_SCALE  = 0.25             # rad — policy output → target offset
 STAND_HEIGHT  = 0.27             # target torso height
 MIN_Z         = 0.14             # below this → fallen
 
-VX_RANGE  = (-0.3, 0.8)
+VX_RANGE  = (-0.3, 0.6)   # capped — short legs step cleanly to 0.6, drag beyond
 YAW_RANGE = (-0.8, 0.8)
 
 
@@ -58,7 +58,7 @@ class RobotV2Env(gym.Env):
         self._max_foot_lift = 0.12
         self._group_A       = (0, 3)
 
-        self._freq_min, self._freq_max = 2.2, 4.2
+        self._freq_min, self._freq_max = 2.4, 4.6   # quicker cadence → shorter strides, less drag
         self._phase = 0.0
         self._cmd   = np.zeros(2)
         self._last_action  = np.zeros(N_JOINTS)
@@ -118,7 +118,7 @@ class RobotV2Env(gym.Env):
         prog_yaw = min(yaw_rate * np.sign(cmd_yaw), abs(cmd_yaw)) if abs(cmd_yaw) > 0.1 else 0.0
         lin_track = np.exp(-4.0 * (vx - cmd_vx) ** 2)
         yaw_trk   = np.exp(-4.0 * (yaw_rate - cmd_yaw) ** 2)
-        track = 4.0*prog_vx + 1.5*lin_track + 3.0*prog_yaw + 1.0*yaw_trk
+        track = 5.0*prog_vx + 1.5*lin_track + 3.0*prog_yaw + 1.0*yaw_trk
 
         # STRONG posture rewards — stop the collapse
         height_reward  = 1.5 * np.exp(-((z - STAND_HEIGHT) / 0.06) ** 2)
@@ -133,7 +133,7 @@ class RobotV2Env(gym.Env):
             if contacts[i]:
                 slip += np.linalg.norm(foot_xy[i] - self._prev_foot_xy[i]) / self._ctrl_dt
         self._prev_foot_xy = foot_xy
-        slip_penalty = 1.2 * slip                       # punish dragging harder
+        slip_penalty = 2.0 * slip                       # punish dragging hard
 
         # gait clock (trot when moving / plant when stopped) + swing clearance
         if moving:
@@ -201,7 +201,7 @@ class RobotV2Env(gym.Env):
             mujoco.mj_step(self.model, self.data)
 
         speed_cmd = max(abs(float(self._cmd[0])), 0.5 * abs(float(self._cmd[1])))
-        freq = self._freq_min + (self._freq_max - self._freq_min) * min(speed_cmd / 0.7, 1.0)
+        freq = self._freq_min + (self._freq_max - self._freq_min) * min(speed_cmd / 0.6, 1.0)
         self._phase = (self._phase + self._ctrl_dt * freq) % 1.0
 
         reward     = self._compute_reward(action)

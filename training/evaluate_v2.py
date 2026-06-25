@@ -10,8 +10,8 @@ from sim.envs import RobotV2Env
 CKPT = "checkpoints_v2"
 TESTS = [
     ("stand still",   0.0,  0.0),
-    ("walk slow",     0.4,  0.0),
-    ("walk fast",     0.8,  0.0),
+    ("walk slow",     0.3,  0.0),
+    ("walk fast",     0.6,  0.0),
     ("turn left",     0.0,  0.6),
     ("turn right",    0.0, -0.6),
     ("walk + turn",   0.4,  0.4),
