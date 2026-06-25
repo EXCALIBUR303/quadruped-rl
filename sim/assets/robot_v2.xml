@@ -12,7 +12,8 @@
   <default>
     <joint limited="true" damping="0.8" armature="0.02" stiffness="0"/>
     <geom conaffinity="1" condim="3" friction="1.0 0.1 0.1"/>
-    <motor ctrllimited="true" ctrlrange="-1 1" gear="10"/>
+    <motor ctrllimited="true" gear="1"/>   <!-- ctrl = torque (Nm); PD loop in env -->
+
     <!-- decorative geoms: no collision, no mass -->
     <default class="deco">
       <geom contype="0" conaffinity="0" mass="0" group="1"/>
@@ -145,19 +146,21 @@
   </worldbody>
 
   <!-- 12 actuators = 12 servos (3 per leg): hip (turn) + shoulder + knee -->
+  <!-- torque-limited motors (ctrl is torque in Nm); a PD controller in the
+       env computes these torques from target joint angles. -->
   <actuator>
-    <motor name="FL_hip" joint="FL_hip" gear="8"/>
-    <motor name="FL_shoulder" joint="FL_shoulder" gear="10"/>
-    <motor name="FL_knee" joint="FL_knee" gear="14"/>
-    <motor name="FR_hip" joint="FR_hip" gear="8"/>
-    <motor name="FR_shoulder" joint="FR_shoulder" gear="10"/>
-    <motor name="FR_knee" joint="FR_knee" gear="14"/>
-    <motor name="RL_hip" joint="RL_hip" gear="8"/>
-    <motor name="RL_shoulder" joint="RL_shoulder" gear="10"/>
-    <motor name="RL_knee" joint="RL_knee" gear="14"/>
-    <motor name="RR_hip" joint="RR_hip" gear="8"/>
-    <motor name="RR_shoulder" joint="RR_shoulder" gear="10"/>
-    <motor name="RR_knee" joint="RR_knee" gear="14"/>
+    <motor name="FL_hip" joint="FL_hip" ctrlrange="-8 8"/>
+    <motor name="FL_shoulder" joint="FL_shoulder" ctrlrange="-12 12"/>
+    <motor name="FL_knee" joint="FL_knee" ctrlrange="-14 14"/>
+    <motor name="FR_hip" joint="FR_hip" ctrlrange="-8 8"/>
+    <motor name="FR_shoulder" joint="FR_shoulder" ctrlrange="-12 12"/>
+    <motor name="FR_knee" joint="FR_knee" ctrlrange="-14 14"/>
+    <motor name="RL_hip" joint="RL_hip" ctrlrange="-8 8"/>
+    <motor name="RL_shoulder" joint="RL_shoulder" ctrlrange="-12 12"/>
+    <motor name="RL_knee" joint="RL_knee" ctrlrange="-14 14"/>
+    <motor name="RR_hip" joint="RR_hip" ctrlrange="-8 8"/>
+    <motor name="RR_shoulder" joint="RR_shoulder" ctrlrange="-12 12"/>
+    <motor name="RR_knee" joint="RR_knee" ctrlrange="-14 14"/>
   </actuator>
 
   <!-- Standing pose: hips neutral, diamond legs, feet on floor.
