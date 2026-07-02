@@ -32,10 +32,10 @@ QUIT_WORDS = ("goodbye", "good bye", "power down", "shut down", "quit", "exit")
 def banner():
     art = Text()
     art.append("  ▄▄▄  \n", style="bold cyan")
-    art.append(" ╱   ╲  ", style="cyan"); art.append("R O B O - P U P  2.0\n", style="bold white")
-    art.append(" ╲▂▂▂╱  ", style="cyan"); art.append("walks · turns · sits · waves · dances · fetches\n", style="dim")
+    art.append(" ╱   ╲  ", style="cyan"); art.append("R O B O - P U P  3.0\n", style="bold white")
+    art.append(" ╲▂▂▂╱  ", style="cyan"); art.append("walks · turns · tricks · fetches · patrols · follows\n", style="dim")
     console.print(Panel(art, border_style="cyan", title="[bold]🐕 online[/bold]",
-                        subtitle="try: 'sit' · 'dance' · 'fetch the ball' · 'goodbye'"))
+                        subtitle="try: 'dance' · 'fetch the ball' · 'patrol' · 'follow the ball' · 'goodbye'"))
 
 
 def status(heard, intent):
@@ -81,6 +81,10 @@ def voice_loop(ctrl):
         elif intent["action"] == "trick":
             if intent["trick"] == "fetch":
                 ctrl.fetch()
+            elif intent["trick"] == "patrol":
+                ctrl.patrol()
+            elif intent["trick"] == "follow":
+                ctrl.follow()
             elif intent["trick"] == "spin":
                 ctrl.spin()
             else:

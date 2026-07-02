@@ -19,7 +19,7 @@ from sim.envs import RobotV2Env
 CHECKPOINT_DIR = "checkpoints_v2"
 LOG_DIR        = "logs_v2"
 N_ENVS         = 8
-TOTAL_STEPS    = 8_000_000    # on resume this is ADDED to the current step count
+TOTAL_STEPS    = 15_000_000   # fresh runs stop here; on resume this is added
 
 
 def make_env(rank, seed=0):

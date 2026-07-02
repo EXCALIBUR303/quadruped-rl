@@ -17,7 +17,7 @@ import ollama
 MODEL = "llama3.2:3b"
 VX_LO, VX_HI   = -0.3, 0.6
 YAW_LO, YAW_HI = -0.7, 0.7
-TRICK_NAMES = {"sit", "lie", "wave", "dance", "bow", "spin", "fetch"}
+TRICK_NAMES = {"sit", "lie", "wave", "dance", "bow", "spin", "fetch", "patrol", "follow"}
 
 SYSTEM_PROMPT = """You are ROBO-PUP, a cheerful four-legged robot dog. Convert the user's words into a JSON intent AND a short warm spoken reply (eager-puppy personality, max ~12 words).
 
@@ -25,7 +25,8 @@ Output ONLY compact JSON: {"action":"move"|"trick"|"chat", "vx":<num>, "yaw":<nu
 
 MOVE — walking/turning. vx m/s: stop=0, slow=0.3, normal=0.45, fast=0.6, backward=-0.3.
        yaw rad/s: straight=0, left=+0.6, right=-0.6. Can combine.
-TRICK — one of: sit, lie, wave, dance, bow, spin, fetch.
+TRICK — one of: sit, lie, wave, dance, bow, spin, fetch, patrol, follow.
+        patrol = walk a loop around the arena. follow = follow the ball around.
 CHAT — questions/small talk: no movement, just answer in character (vx=0,yaw=0).
 
 Examples:
@@ -38,6 +39,8 @@ Examples:
 "go get the ball"     -> {"action":"trick","vx":0,"yaw":0,"trick":"fetch","reply":"Ball! Ball! On it!"}
 "lie down"            -> {"action":"trick","vx":0,"yaw":0,"trick":"lie","reply":"Flopping down for a rest."}
 "spin around"         -> {"action":"trick","vx":0,"yaw":0,"trick":"spin","reply":"Wheee, spinning!"}
+"patrol the area"     -> {"action":"trick","vx":0,"yaw":0,"trick":"patrol","reply":"On guard duty! Patrolling."}
+"follow the ball"     -> {"action":"trick","vx":0,"yaw":0,"trick":"follow","reply":"I'll chase it everywhere!"}
 "who are you?"        -> {"action":"chat","vx":0,"yaw":0,"trick":"","reply":"I'm Robo-Pup, your robot best friend!"}
 "good boy"            -> {"action":"chat","vx":0,"yaw":0,"trick":"","reply":"Wag wag! I try my best!"}
 """
@@ -79,6 +82,10 @@ def _keyword_fallback(text, current_vx, current_yaw):
     def trick(name, reply):
         return {"action": "trick", "vx": 0, "yaw": 0, "trick": name, "reply": reply}
 
+    if "patrol" in t or "guard" in t:
+        return trick("patrol", "Patrolling the arena!")
+    if "follow" in t or "chase" in t:
+        return trick("follow", "Following the ball!")
     if any(w in t for w in ["fetch", "ball", "go get"]):
         return trick("fetch", "Ball! On it!")
     if "sit" in t:

@@ -50,6 +50,28 @@
       <geom class="deco" type="sphere" size="0.058" rgba="1.0 0.55 0.1 0.25"/>
     </body>
 
+    <!-- Patrol waypoint flag: glowing pole marking the current patrol target -->
+    <body name="waypoint_flag" mocap="true" pos="0 0 -1">
+      <geom class="deco" type="cylinder" fromto="0 0 0 0 0 0.35" size="0.012" material="accent"/>
+      <geom class="deco" type="sphere" pos="0 0 0.38" size="0.03" material="eye"/>
+    </body>
+
+    <!-- Obstacle-course crates. Visual props the navigator steers around
+         (no collision, so a stray bump can never trip the robot). -->
+    <geom name="crate0" class="deco" type="box" pos="1.8 1.1 0.14"  size="0.20 0.20 0.14"
+          rgba="0.30 0.32 0.38 1" euler="0 0 0.4"/>
+    <geom name="crate1" class="deco" type="box" pos="2.4 -0.9 0.17" size="0.22 0.22 0.17"
+          rgba="0.26 0.28 0.34 1" euler="0 0 -0.3"/>
+    <geom name="crate2" class="deco" type="box" pos="0.9 -1.7 0.12" size="0.18 0.18 0.12"
+          rgba="0.33 0.35 0.42 1" euler="0 0 0.9"/>
+    <geom name="crate3" class="deco" type="box" pos="3.1 0.5 0.15"  size="0.20 0.20 0.15"
+          rgba="0.28 0.30 0.36 1" euler="0 0 -0.7"/>
+    <!-- glowing edge strips so the crates read as "tech props" -->
+    <geom class="deco" type="box" pos="1.8 1.1 0.285"  size="0.205 0.205 0.006" material="accent"  euler="0 0 0.4"/>
+    <geom class="deco" type="box" pos="2.4 -0.9 0.345" size="0.225 0.225 0.006" material="accent_o" euler="0 0 -0.3"/>
+    <geom class="deco" type="box" pos="0.9 -1.7 0.245" size="0.185 0.185 0.006" material="accent"  euler="0 0 0.9"/>
+    <geom class="deco" type="box" pos="3.1 0.5 0.305"  size="0.205 0.205 0.006" material="accent_o" euler="0 0 -0.7"/>
+
     <!-- ============================ CHASSIS ============================ -->
     <body name="torso" pos="0 0 0.278">
       <freejoint name="root"/>

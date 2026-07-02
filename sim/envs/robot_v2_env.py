@@ -8,10 +8,13 @@ policy outputs TARGET joint-angle offsets from the standing pose, and a PD
 loop converts them to smooth motor torques. This yields a stable, stepping
 gait and an upright posture.
 
-Obs (51) = [torso_z(1), quat(4), linvel(3), angvel(3),
+Obs (50) = [torso_z(1), projected_gravity(3), body_linvel(3), body_angvel(3),
             (jnt_pos - default)(12), jnt_vel(12), last_action(12),
             gait_clock(2), command(2)]
-Action (12) = target joint-angle offsets (scaled). Command = [vx, yaw].
+Action (12) = target joint-angle offsets (scaled). Command = [vx, yaw]
+              where vx is BODY-frame forward speed — heading-invariant, so the
+              robot walks correctly facing any direction (a world-frame reward
+              only learns to walk the way it was trained facing).
 """
 
 from pathlib import Path
@@ -64,7 +67,7 @@ class RobotV2Env(gym.Env):
         self._last_action  = np.zeros(N_JOINTS)
         self._prev_foot_xy = np.zeros((4, 2))
 
-        n_obs = 1 + 4 + 3 + 3 + N_JOINTS + N_JOINTS + N_JOINTS + 2 + 2   # 51
+        n_obs = 1 + 3 + 3 + 3 + N_JOINTS + N_JOINTS + N_JOINTS + 2 + 2   # 50
         self.observation_space = spaces.Box(-np.inf, np.inf, (n_obs,), np.float32)
         self.action_space      = spaces.Box(-1.0, 1.0, (N_JOINTS,), np.float32)
 
@@ -93,11 +96,26 @@ class RobotV2Env(gym.Env):
         z  = np.array([self.data.geom_xpos[g][2] - self._foot_r for g in self._foot_gids])
         return xy, z
 
+    def _body_frame(self):
+        """Body-frame linvel, angvel, and projected gravity.
+
+        Heading-invariant: 'forward' is wherever the robot faces, so the
+        policy works at ANY compass heading (a world-frame formulation only
+        learns to walk in the direction it was trained facing).
+        """
+        quat = self.data.qpos[3:7]
+        R = np.zeros(9); mujoco.mju_quat2Mat(R, quat); R = R.reshape(3, 3)
+        lin  = R.T @ self.data.qvel[0:3]
+        ang  = R.T @ self.data.qvel[3:6]
+        grav = R.T @ np.array([0.0, 0.0, -1.0])
+        return lin, ang, grav
+
     def _get_obs(self):
         qpos, qvel = self.data.qpos, self.data.qvel
+        lin, ang, grav = self._body_frame()
         clock = np.array([np.sin(2*np.pi*self._phase), np.cos(2*np.pi*self._phase)])
         return np.concatenate([
-            qpos[2:3], qpos[3:7], qvel[0:3], qvel[3:6],
+            qpos[2:3], grav, lin, ang,
             qpos[N_FJ_Q:] - DEFAULT_POSE, qvel[N_FJ_V:], self._last_action,
             clock, self._cmd,
         ]).astype(np.float32)
@@ -105,11 +123,11 @@ class RobotV2Env(gym.Env):
     # ----------------------------------------------------------- reward
     def _compute_reward(self, action):
         qpos, qvel = self.data.qpos, self.data.qvel
-        vx, vy   = float(qvel[0]), float(qvel[1])
-        yaw_rate = float(qvel[5])
+        lin, ang, grav = self._body_frame()
+        vx, vy   = float(lin[0]), float(lin[1])     # BODY-frame forward / lateral
+        yaw_rate = float(ang[2])                    # body-frame turn rate
         z        = qpos[2]
-        qx, qy   = qpos[4], qpos[5]
-        up = 1.0 - 2.0 * float(qx*qx + qy*qy)
+        up = float(-grav[2])                        # 1 level, 0 tipped 90°
 
         cmd_vx, cmd_yaw = float(self._cmd[0]), float(self._cmd[1])
         moving = (abs(cmd_vx) > 0.1) or (abs(cmd_yaw) > 0.1)
@@ -152,7 +170,7 @@ class RobotV2Env(gym.Env):
         lateral_penalty   = 0.3 * abs(vy) * (1.0 - min(1.0, abs(cmd_yaw)/0.3))
         yaw_drift_penalty = 1.0 * abs(yaw_rate) if abs(cmd_yaw) < 0.1 else 0.0
         stillness_penalty = (3.0 * (abs(vx) + abs(vy) + abs(yaw_rate)) if not moving else 0.0)
-        roll_pitch_pen    = 0.3 * float(qvel[3]**2 + qvel[4]**2)
+        roll_pitch_pen    = 0.3 * float(ang[0]**2 + ang[1]**2)
         action_rate_pen   = 0.05 * float(np.sum((action - self._last_action) ** 2))
         jvel_pen          = 0.0002 * float(np.sum(qvel[N_FJ_V:] ** 2))
 
@@ -210,8 +228,9 @@ class RobotV2Env(gym.Env):
         terminated = self._is_terminated()
         self._step += 1
         truncated  = self._step >= self._max_steps
+        lin, ang, _ = self._body_frame()
         info = {
-            "x_vel": float(self.data.qvel[0]), "yaw_rate": float(self.data.qvel[5]),
+            "x_vel": float(lin[0]), "yaw_rate": float(ang[2]),   # body frame
             "torso_z": float(self.data.qpos[2]),
             "cmd_vx": float(self._cmd[0]), "cmd_yaw": float(self._cmd[1]),
         }
