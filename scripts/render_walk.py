@@ -55,13 +55,28 @@ def main():
         record_while("TRICK")
         record(int(0.4 * FPS))
 
-    print("scene 3: fetch")
-    ctrl.fetch()
+    print("scene 3: fetch (dodging the crates)")
+    ctrl.raw.data.mocap_pos[ctrl._ball_mocap] = [2.7, 1.65, 0.05]
+    ctrl.mode = "NAVIGATE"; ctrl._set_eyes("navigate")
     record_while("NAVIGATE")
     record_while("TRICK")            # celebration wiggle
-    record(int(1.0 * FPS))
+    record(int(0.6 * FPS))
 
-    print("scene 4: goodbye sit")
+    print("scene 4: patrol lap")
+    ctrl.patrol()
+    laps = []
+    ctrl.on_event = lambda e: laps.append(e)
+    n = 0
+    while "lap" not in laps and n < 1600:
+        ctrl.step()
+        cam.lookat = d.qpos[:3].copy()
+        renderer.update_scene(d, cam)
+        frames.append(renderer.render())
+        n += 1
+
+    print("scene 5: goodbye sit")
+    ctrl.set_command(0.0, 0.0)
+    record(int(0.5 * FPS))
     ctrl.do_trick("sit")
     record_while("TRICK")
 

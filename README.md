@@ -26,8 +26,15 @@ viewer and replies out loud. Everything runs locally on a Mac. No hardware.
   (the same way real robot-dog demos are choreographed), each one
   physics-verified so it never falls.
 - **Fetch**: say *"go get the ball"* — a glowing ball drops into the world and
-  the robot **autonomously navigates to it** (a heading P-controller steering
-  the RL walking policy), then celebrates with a butt-wiggle.
+  the robot **autonomously navigates to it, steering around the crates in the
+  arena** (potential-field guidance driving the RL walking policy), then
+  celebrates with a butt-wiggle.
+- **Patrol**: *"patrol the arena"* — loops a waypoint circuit endlessly, a
+  glowing flag marking the current target (full lap in ~24 s).
+- **Follow**: *"follow the ball"* — the ball wanders the arena and the robot
+  tails it (~0.5 m tracking distance).
+- **Webcam drive** (`brain/follow_me.py`): hold a bright orange object up to
+  your webcam — the robot turns and walks wherever you move it.
 - **Mood eyes**: the visor glows cyan when idle, orange during tricks, green
   while fetching.
 - A **voice layer** that turns natural speech into commands and talks back with
@@ -37,7 +44,7 @@ viewer and replies out loud. Everything runs locally on a Mac. No hardware.
   "The The The" commands) and unbounded episodes (the robot no longer
   teleports back to origin after 20 s of demo).
 
-## Control: PD position control
+## Control: PD position control, body-frame everything
 
 The policy does **not** output torques. It outputs **target joint angles**
 (offsets from a standing pose); a PD loop (`τ = Kp·(target−q) − Kd·q̇`,
@@ -45,6 +52,13 @@ Kp=25, Kd=0.7) turns them into smooth motor torques each sim step. This is the
 standard, stable way to train legged robots — raw torque control led to a
 collapsed, foot-sliding gait that still tracked velocity (a trap the old
 velocity-only eval failed to catch).
+
+Observations and rewards are **body-frame** (projected gravity + body-frame
+velocities — verified exactly heading-invariant). The first version rewarded
+*world*-frame x-velocity, and the policy dutifully learned to walk **only when
+facing east**: fetch would navigate out, turn around, face the ball… and
+freeze. Body-frame training fixed walking at every compass heading (verified
+N/E/S/W), which is what makes patrol loops and fetch-from-any-angle possible.
 
 ## Results (`evaluate_v2.py` — checks velocity **and** posture **and** foot-slip)
 
