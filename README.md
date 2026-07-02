@@ -21,8 +21,21 @@ viewer and replies out loud. Everything runs locally on a Mac. No hardware.
 - A custom **12-joint robot dog** (3 motors per leg, incl. a hip-abduction
   joint) trained from scratch with PPO to follow velocity + turn commands:
   stand, walk at any speed, reverse, and **turn left/right**.
+- **Tricks**: sit, lie down, wave a paw, dance, play-bow, spin — choreographed
+  keyframe motions played through the same PD controller as the policy
+  (the same way real robot-dog demos are choreographed), each one
+  physics-verified so it never falls.
+- **Fetch**: say *"go get the ball"* — a glowing ball drops into the world and
+  the robot **autonomously navigates to it** (a heading P-controller steering
+  the RL walking policy), then celebrates with a butt-wiggle.
+- **Mood eyes**: the visor glows cyan when idle, orange during tricks, green
+  while fetching.
 - A **voice layer** that turns natural speech into commands and talks back with
-  personality — all local & offline.
+  personality — movement, tricks, *and* free chat ("who are you?" gets an
+  in-character answer). All local & offline.
+- **Robustness**: Whisper silence-hallucination filtering (no more phantom
+  "The The The" commands) and unbounded episodes (the robot no longer
+  teleports back to origin after 20 s of demo).
 
 ## Control: PD position control
 
@@ -75,8 +88,12 @@ python scripts/render_walk.py      # render robot_demo.mp4
 mjpython brain/talk_to_robot.py    # macOS: mjpython, not python
 ```
 
-Try: *"walk forward"*, *"turn left"*, *"go faster"*, *"back up"*, *"stop"*.
-Keyboard alternative: `mjpython brain/controller.py` (number=speed, l/r=turn, s=stop).
+Try: *"walk forward"*, *"turn left"*, *"sit"*, *"wave hello"*, *"dance"*,
+*"take a bow"*, *"spin around"*, *"go fetch the ball"*, *"stop"*, *"goodbye"* —
+or just chat with it.
+
+Keyboard alternative: `mjpython brain/controller.py`
+(number=speed · l/r=turn · s=stop · `t sit|wave|dance|bow|lie` · f=fetch · p=spin).
 
 ## Project layout
 
@@ -87,11 +104,12 @@ sim/
 training/
   train_v2.py            # PPO training (resume-capable)
   evaluate_v2.py         # walk + turn command tracking
-scripts/render_walk.py   # renders the demo video
+scripts/render_walk.py   # renders the showcase video (walk, tricks, fetch)
 brain/
-  controller.py          # loads policy, runs viewer, live set_command(vx, yaw)
-  nlu.py                 # speech → {vx, yaw, reply} via Ollama
-  voice.py               # mic → text (Whisper) + spoken replies (say), robot voice
+  controller.py          # mode machine: POLICY walk/turn · TRICK · NAVIGATE (fetch) · SPIN
+  tricks.py              # keyframe choreography engine (sit/lie/wave/dance/bow/wiggle)
+  nlu.py                 # speech → {action, vx, yaw, trick, reply} via Ollama
+  voice.py               # Whisper STT (w/ hallucination filter) + `say` TTS
   talk_to_robot.py       # full pipeline + console UI
 ```
 

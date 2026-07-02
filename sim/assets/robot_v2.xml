@@ -43,6 +43,13 @@
     <light name="rim"  pos="-1 -2 1" dir="0.5 1 -0.5" diffuse="0.2 0.3 0.4"/>
     <geom name="floor" type="plane" size="30 30 0.1" material="floor_mat"/>
 
+    <!-- Fetch target: mocap ball, moved from code. Hidden below floor by default.
+         Decorative (no collision) so the robot can't trip on it. -->
+    <body name="fetch_ball" mocap="true" pos="0 0 -1">
+      <geom class="deco" type="sphere" size="0.05" material="accent_o"/>
+      <geom class="deco" type="sphere" size="0.058" rgba="1.0 0.55 0.1 0.25"/>
+    </body>
+
     <!-- ============================ CHASSIS ============================ -->
     <body name="torso" pos="0 0 0.278">
       <freejoint name="root"/>
