@@ -92,7 +92,10 @@ or sliding policy cannot pass on velocity alone. See `robot_demo.mp4`.
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# train the 12-joint robot to walk + turn (resume-capable, ~40 min)
+# EITHER: use the pretrained policy shipped in this repo (skip training)
+mkdir -p checkpoints_v2 && cp models/final/* checkpoints_v2/
+
+# OR: train from scratch (resume-capable, ~50 min on an M-series Mac)
 caffeinate -i python training/train_v2.py
 
 python training/evaluate_v2.py     # check walk + turn tracking
