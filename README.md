@@ -179,27 +179,42 @@ failure. Compare two policies directly:
 python training/benchmark.py --compare models/pre_domain_rand
 ```
 
-**Measured result** (the shipped `models/final` policy vs. an identical run
-with domain randomization + observation noise disabled, 3 seeds/condition):
+**Measured result.** Three policies, identical seed (42) and step budget (15M),
+scored over 7 conditions × 6 commands × 5 seeds (210 episodes each):
 
-| Condition | No DR (track err) | With DR (track err) | Change |
+| Condition (tracking error, lower better) | No DR | DR | DR + curriculum |
 |---|---|---|---|
-| nominal | 0.096 | 0.127 | +0.031 (slightly worse) |
-| ice (friction 0.25×) | 0.132 | 0.088 | −0.044 |
-| grippy (friction 2×) | 0.265 | 0.174 | −0.091 |
-| payload +1.0 kg | 0.142 | 0.142 | ≈0 |
-| weak motors | 0.328 | 0.303 | −0.025 |
-| **stiff motors** | 0.526 | 0.198 | **−0.329 (62% better)** |
-| worst case (combined) | 0.325 | 0.300 | −0.025 |
-| **mean over all conditions** | **0.259** | **0.190** | **−0.069 (27% better)** |
+| nominal | 0.097 | **0.083** | 0.098 |
+| ice (friction 0.25×) | 0.097 | **0.083** | 0.097 |
+| grippy (friction 2×) | 0.260 | 0.175 | 0.177 |
+| payload +1.0 kg | 0.152 | 0.143 | **0.125** |
+| weak motors | 0.334 | 0.304 | **0.240** |
+| stiff motors | 0.443 | **0.245** | 0.254 |
+| worst case (combined) | 0.280 | 0.301 | **0.227** |
+| **mean, all conditions** | 0.237 | 0.191 | **0.174** |
+| **mean, stress only** | 0.261 | 0.209 | **0.187** |
+| falls | 0% | 0% | 0% |
 
-Falls stayed at 0% in both — the PD position controller is inherently
-fall-resistant regardless of randomization, so the gain shows up in *tracking
-accuracy* under stress, not survival. There's an honest trade-off: on exactly
-nominal physics the DR policy is marginally worse (+0.031), which is the usual
-cost of a policy that hedges against variation instead of overfitting to one
-exact dynamics model. For a robot meant to keep working under motor wear,
-payload changes, or a different floor, that trade is worth it.
+Domain randomization is a clear win: **20% better tracking under stress**, and
+it does *not* cost nominal accuracy (0.097 → 0.083). Falls stayed at 0%
+everywhere — PD position control is inherently fall-resistant, so the gain
+shows up in tracking accuracy, not survival.
+
+The curriculum improves the *hardest* conditions further (weak motors 0.304 →
+0.240, worst case 0.301 → 0.227) but is slightly weaker at nominal and scores
+4/6 vs 5/6 on `evaluate_v2.py`. **`models/final` ships the non-curriculum DR
+policy**, because this project's actual deployment is a nominal-physics sim
+demo. Anyone targeting real hardware — where motor wear and payload variation
+are the norm — should prefer the curriculum policy (`--warmup-frac 0.4`,
+saved in `models/dr_curriculum`).
+
+> **Correction.** An earlier version of this table reported that DR *hurt*
+> nominal accuracy (0.096 → 0.127). That was an artifact of the benchmark's
+> seeding: `--seeds` called `np.random.seed()`, which does not reach the
+> environment's RNG, so policies were not compared on identical episodes. With
+> the env RNG seeded properly the effect reverses and DR is better at nominal.
+> Uncontrolled evaluation seeding is an easy way to draw a confident wrong
+> conclusion.
 
 ## The journey
 

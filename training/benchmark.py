@@ -70,7 +70,12 @@ def apply_condition(raw, c):
     raw._torque_limit = TORQUE_LIMIT * c["torque"]
 
 
-def run_episode(raw, venv, model, cvx, cyaw, cond, steps=250):
+def run_episode(raw, venv, model, cvx, cyaw, cond, steps=250, seed=None):
+    if seed is not None:
+        # Seed the ENV's RNG. np.random.seed() does not reach it, so without
+        # this the "seeds" only produced uncontrolled episode-to-episode drift
+        # and comparisons between policies were not on identical footing.
+        raw.reset(seed=seed)
     obs = venv.reset()
     apply_condition(raw, cond)          # after reset, which re-randomizes
     raw.set_command(cvx, cyaw)
@@ -108,7 +113,7 @@ def score_policy(model_path, norm_path, label, seeds=2):
         for cmd_label, cvx, cyaw in COMMANDS:
             for s in range(seeds):
                 np.random.seed(s)
-                r = run_episode(raw, venv, model, cvx, cyaw, cond)
+                r = run_episode(raw, venv, model, cvx, cyaw, cond, seed=1000 + s)
                 errs.append(abs(r["vx"] - cvx) + abs(r["yaw"] - cyaw))
                 heights.append(r["height"])
                 falls += int(r["fell"])
