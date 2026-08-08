@@ -218,3 +218,36 @@ def test_preflight_checks_return_message_pairs():
                   preflight.check_viewer_runtime()):
         ok, msg = check
         assert isinstance(ok, bool) and isinstance(msg, str) and msg
+
+
+def test_viewer_check_uses_mujoco_internals_not_sys_executable(monkeypatch):
+    """Regression: the check keyed off sys.executable, which is still
+    .../python3.11 under mjpython (a launcher around the real interpreter),
+    so it rejected correct `mjpython script.py` invocations."""
+    import sys as _sys
+    import preflight
+    import mujoco.viewer
+
+    monkeypatch.setattr(_sys, "platform", "darwin")
+
+    # mjpython installs a non-None _MJPYTHON -> must be accepted
+    monkeypatch.setattr(mujoco.viewer, "_MJPYTHON", object(), raising=False)
+    ok, msg = preflight.check_viewer_runtime()
+    assert ok, f"valid mjpython run was rejected: {msg}"
+
+    # plain python leaves it None -> must be rejected, with the fix in the text
+    monkeypatch.setattr(mujoco.viewer, "_MJPYTHON", None, raising=False)
+    ok, msg = preflight.check_viewer_runtime()
+    assert not ok and "mjpython" in msg
+
+
+def test_viewer_check_does_not_block_if_mujoco_internals_change(monkeypatch):
+    """If _MJPYTHON disappears in a future MuJoCo, don't hard-block the user —
+    MuJoCo raises its own clear error at launch."""
+    import sys as _sys
+    import preflight
+    import mujoco.viewer
+    monkeypatch.setattr(_sys, "platform", "darwin")
+    monkeypatch.delattr(mujoco.viewer, "_MJPYTHON", raising=False)
+    ok, _ = preflight.check_viewer_runtime()
+    assert ok

@@ -110,12 +110,31 @@ def check_camera(index=0):
 
 # ------------------------------------------------------------------ mjpython
 def check_viewer_runtime():
-    """The MuJoCo interactive viewer requires `mjpython` on macOS."""
-    if sys.platform == "darwin" and not os.path.basename(sys.executable).startswith("mjpython"):
+    """The MuJoCo interactive viewer requires `mjpython` on macOS.
+
+    Detected the way MuJoCo itself does it — via the `_MJPYTHON` object the
+    launcher installs in `mujoco.viewer`. Checking `sys.executable` does NOT
+    work: mjpython is a launcher that runs the normal interpreter, so
+    sys.executable is still .../python3.11 and the check rejects a perfectly
+    correct `mjpython script.py` invocation.
+    """
+    if sys.platform != "darwin":
+        return True, "Viewer runtime OK"
+    try:
+        import mujoco.viewer
+    except Exception as exc:
+        return False, f"MuJoCo viewer unavailable ({exc})."
+
+    missing = object()
+    mjpy = getattr(mujoco.viewer, "_MJPYTHON", missing)
+    if mjpy is missing:
+        # MuJoCo internals changed; don't block — it raises its own clear error.
+        return True, "Viewer runtime: could not verify, continuing"
+    if mjpy is None:
         script = os.path.relpath(sys.argv[0]) if sys.argv and sys.argv[0] else "<script>"
         return False, (f"On macOS the viewer needs mjpython:\n"
                        f"      mjpython {script}")
-    return True, "Viewer runtime OK"
+    return True, "Viewer runtime OK (mjpython)"
 
 
 def report(checks, console=None):
