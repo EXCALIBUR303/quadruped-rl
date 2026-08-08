@@ -187,3 +187,58 @@ def test_standing_command_penalises_drifting(env):
     env.data.qvel[0] = 0.6
     drifting = env._compute_reward(a)
     assert still > drifting, "told to stand still, drifting is not penalised"
+
+
+# ------------------------------------------------------------ DR curriculum
+def test_curriculum_scale_zero_collapses_ranges_to_nominal(random_env):
+    """At scale 0 the robot must see exactly nominal dynamics, so early
+    training is not handicapped by randomization it cannot yet cope with."""
+    random_env.set_curriculum(0.0)
+    for _ in range(8):
+        random_env.reset()
+        from sim.config import KP, KD
+        assert abs(random_env._kp - KP) < 1e-9
+        assert abs(random_env._kd - KD) < 1e-9
+        assert abs(float(random_env.model.body_mass[random_env._torso_bid])
+                   - random_env._nominal_mass) < 1e-9
+    random_env.set_curriculum(1.0)
+
+
+def test_curriculum_scale_one_restores_full_ranges(random_env):
+    random_env.set_curriculum(1.0)
+    dr = random_env.cfg.domain_rand
+    assert dr.range_for("friction") == pytest.approx(dr.friction)
+    assert dr.range_for("kp_scale") == pytest.approx(dr.kp_scale)
+
+
+def test_curriculum_scale_interpolates_monotonically(random_env):
+    dr = random_env.cfg.domain_rand
+    widths = []
+    for s in (0.0, 0.25, 0.5, 0.75, 1.0):
+        dr.scale = s
+        lo, hi = dr.range_for("friction")
+        widths.append(hi - lo)
+    assert widths == sorted(widths), "randomization must widen monotonically"
+    assert widths[0] == pytest.approx(0.0)
+    dr.scale = 1.0
+
+
+def test_curriculum_scale_is_clamped(random_env):
+    dr = random_env.cfg.domain_rand
+    dr.scale = 5.0
+    assert dr.range_for("friction") == pytest.approx(dr.friction), "scale >1 must clamp"
+    dr.scale = -3.0
+    lo, hi = dr.range_for("friction")
+    assert hi - lo == pytest.approx(0.0), "negative scale must clamp to nominal"
+    dr.scale = 1.0
+
+
+def test_curriculum_scales_observation_noise(random_env):
+    """At scale 0 observations must be noiseless even with noise enabled."""
+    random_env.set_curriculum(0.0)
+    random_env.reset(seed=11)
+    o1, o2 = random_env._get_obs(), random_env._get_obs()
+    np.testing.assert_allclose(o1, o2, err_msg="noise present at curriculum scale 0")
+    random_env.set_curriculum(1.0)
+    o3, o4 = random_env._get_obs(), random_env._get_obs()
+    assert not np.allclose(o3, o4), "noise missing at curriculum scale 1"

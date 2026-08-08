@@ -65,6 +65,23 @@ class DomainRand:
     kd_scale: tuple = (0.85, 1.15)      # x PD damping gain
     torque_scale: tuple = (0.85, 1.10)  # x torque ceiling (battery sag, wear)
 
+    # Curriculum: 0 = no randomization (ranges collapse to the nominal value),
+    # 1 = the full ranges above. Ramped during training so the policy first
+    # learns to walk in clean conditions and only then learns to be robust —
+    # training under full randomization from step 0 costs nominal performance.
+    scale: float = 1.0
+
+    # The "no perturbation" value each range collapses toward at scale 0.
+    NOMINAL = {"friction": 1.0, "torso_mass_kg": 0.0,
+               "kp_scale": 1.0, "kd_scale": 1.0, "torque_scale": 1.0}
+
+    def range_for(self, name):
+        """Curriculum-scaled (lo, hi) for a parameter."""
+        lo, hi = getattr(self, name)
+        n = self.NOMINAL[name]
+        s = max(0.0, min(1.0, self.scale))
+        return (n + (lo - n) * s, n + (hi - n) * s)
+
 
 @dataclass
 class ObsNoise:
@@ -82,6 +99,7 @@ class ObsNoise:
     ang_vel: float    = 0.10    # rad/s
     joint_pos: float  = 0.01    # rad
     joint_vel: float  = 0.60    # rad/s (encoder differentiation is noisy)
+    scale: float      = 1.0     # curriculum multiplier on every std above
 
 
 @dataclass

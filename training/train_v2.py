@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import (BaseCallback, CheckpointCallback,
+                                                EvalCallback)
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
 
@@ -34,6 +35,33 @@ PPO_KWARGS = dict(
     ent_coef=0.005, learning_rate=3e-4, vf_coef=0.5, max_grad_norm=1.0,
     policy_kwargs=dict(net_arch=[256, 256]),
 )
+
+
+class DomainRandCurriculum(BaseCallback):
+    """Ramp randomization + sensor noise from 0 to full over the first
+    `warmup_frac` of training.
+
+    Training under full randomization from step 0 makes the early learning
+    problem needlessly hard and measurably costs nominal-condition accuracy.
+    Letting the policy first learn to walk cleanly, then hardening it, is the
+    standard curriculum approach.
+    """
+
+    def __init__(self, total_steps, warmup_frac=0.4, verbose=0):
+        super().__init__(verbose)
+        self.total_steps = total_steps
+        self.warmup_steps = max(1, int(total_steps * warmup_frac))
+        self._last_logged = -1.0
+
+    def _on_step(self):
+        scale = min(1.0, self.num_timesteps / self.warmup_steps)
+        self.training_env.env_method("set_curriculum", scale)
+        if self.logger is not None:
+            self.logger.record("curriculum/dr_scale", scale)
+        if self.verbose and scale - self._last_logged >= 0.25:
+            print(f"  [curriculum] randomization scale -> {scale:.2f}")
+            self._last_logged = scale
+        return True
 
 
 def make_env(rank, seed, cfg):
@@ -69,6 +97,10 @@ def main():
                     help="disable dynamics randomization (ablation)")
     ap.add_argument("--no-obs-noise", action="store_true",
                     help="disable sensor noise (ablation)")
+    ap.add_argument("--no-curriculum", action="store_true",
+                    help="apply full randomization from step 0 (ablation)")
+    ap.add_argument("--warmup-frac", type=float, default=0.4,
+                    help="fraction of training over which randomization ramps in")
     ap.add_argument("--smoke", action="store_true",
                     help="tiny run that validates the whole pipeline in ~30 s")
     args = ap.parse_args()
@@ -128,6 +160,8 @@ def main():
                      eval_freq=save_freq, n_eval_episodes=3 if args.smoke else 5,
                      deterministic=True, verbose=1),
     ]
+    if cfg.domain_rand.enabled and not args.no_curriculum:
+        callbacks.append(DomainRandCurriculum(total_steps, args.warmup_frac, verbose=1))
     model.learn(total_timesteps=total_steps, callback=callbacks,
                 reset_num_timesteps=reset_ts, progress_bar=not args.smoke)
     model.save(f"{ckpt_dir}/v2_final")

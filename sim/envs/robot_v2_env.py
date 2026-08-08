@@ -95,6 +95,14 @@ class RobotV2Env(gym.Env):
                              self.np_random.uniform(-0.6, 0.6)])
 
     # ------------------------------------------------------ domain randomize
+    def set_curriculum(self, scale):
+        """Set randomization/noise strength in [0, 1]. Called from the training
+        callback so randomization ramps up instead of being full-strength from
+        step 0 (which costs nominal-condition performance)."""
+        self.cfg.domain_rand.scale = float(scale)
+        self.cfg.obs_noise.scale = float(scale)
+        return float(scale)
+
     def _randomize_dynamics(self):
         """Resample physical parameters for this episode."""
         dr = self.cfg.domain_rand
@@ -105,11 +113,13 @@ class RobotV2Env(gym.Env):
             self.model.geom_friction[self._foot_gids, 0] = self._nominal_fric
             return
         u = self.np_random.uniform
-        self.model.geom_friction[self._foot_gids, 0] = self._nominal_fric * u(*dr.friction)
-        self.model.body_mass[self._torso_bid] = self._nominal_mass + u(*dr.torso_mass_kg)
-        self._kp = KP * u(*dr.kp_scale)
-        self._kd = KD * u(*dr.kd_scale)
-        self._torque_limit = TORQUE_LIMIT * u(*dr.torque_scale)
+        self.model.geom_friction[self._foot_gids, 0] = (
+            self._nominal_fric * u(*dr.range_for("friction")))
+        self.model.body_mass[self._torso_bid] = (
+            self._nominal_mass + u(*dr.range_for("torso_mass_kg")))
+        self._kp = KP * u(*dr.range_for("kp_scale"))
+        self._kd = KD * u(*dr.range_for("kd_scale"))
+        self._torque_limit = TORQUE_LIMIT * u(*dr.range_for("torque_scale"))
 
     # ----------------------------------------------------------- helpers
     def _foot_xy_z(self):
@@ -138,14 +148,15 @@ class RobotV2Env(gym.Env):
         joint_vel = qvel[N_FJ_V:].copy()
 
         n = self.cfg.obs_noise
-        if n.enabled:
+        s = max(0.0, min(1.0, getattr(n, "scale", 1.0)))
+        if n.enabled and s > 0.0:
             g = self.np_random.normal
-            height    = height    + g(0, n.height,    size=height.shape)
-            grav      = grav      + g(0, n.gravity,   size=grav.shape)
-            lin       = lin       + g(0, n.lin_vel,   size=lin.shape)
-            ang       = ang       + g(0, n.ang_vel,   size=ang.shape)
-            joint_pos = joint_pos + g(0, n.joint_pos, size=joint_pos.shape)
-            joint_vel = joint_vel + g(0, n.joint_vel, size=joint_vel.shape)
+            height    = height    + g(0, n.height    * s, size=height.shape)
+            grav      = grav      + g(0, n.gravity   * s, size=grav.shape)
+            lin       = lin       + g(0, n.lin_vel   * s, size=lin.shape)
+            ang       = ang       + g(0, n.ang_vel   * s, size=ang.shape)
+            joint_pos = joint_pos + g(0, n.joint_pos * s, size=joint_pos.shape)
+            joint_vel = joint_vel + g(0, n.joint_vel * s, size=joint_vel.shape)
 
         return np.concatenate([
             height, grav, lin, ang,
