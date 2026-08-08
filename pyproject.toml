@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quadruped-rl"
+version = "3.1.0"
+description = "Voice-controlled quadruped robot dog trained with PPO in MuJoCo"
+requires-python = ">=3.10"
+dependencies = [
+    "mujoco>=3.0",
+    "gymnasium>=1.0",
+    "stable-baselines3>=2.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+voice = ["ollama", "faster-whisper", "sounddevice"]
+vision = ["opencv-python"]
+media = ["imageio", "imageio-ffmpeg"]
+dev = ["pytest>=7", "pytest-timeout"]
+
+[tool.setuptools]
+packages = ["sim", "sim.envs", "brain", "training"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "brain"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running tests (physics rollouts, training smoke)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]

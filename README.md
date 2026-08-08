@@ -130,6 +130,55 @@ brain/
   talk_to_robot.py       # full pipeline + console UI
 ```
 
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest -q                              # 85 tests, ~3 s, no services needed
+python training/train_v2.py --smoke    # end-to-end pipeline check, ~5 s
+python training/benchmark.py           # robustness under perturbed dynamics
+```
+
+**Tests** (`tests/`) run entirely offline — no Ollama, microphone, camera, or
+GPU. Each one guards a defect this project actually hit:
+
+| Test | Regression it guards |
+|---|---|
+| `test_env.py::test_observation_is_heading_invariant` | policy once walked only when facing east |
+| `test_env.py::test_pd_control_holds_standing_pose` | torque control collapsed the robot to 0.15 m |
+| `test_tricks.py::test_trick_keeps_the_robot_upright` | `bow`/`dance` poses tipped it over |
+| `test_controller.py::test_no_teleport_during_a_long_run` | episode truncation teleported it mid-demo |
+| `test_controller.py::test_concurrent_mode_switching_does_not_crash` | voice thread raced the physics thread |
+| `test_brain.py::test_hallucinated_transcripts_are_dropped` | Whisper turned silence into "The The The" |
+
+The trick-safety tests are mutation-tested: reverting `bow` to its original
+pose makes them fail with uprightness −0.22, so they are not vacuous.
+
+**Configuration.** `sim/config.py` is the single source of truth for PD gains,
+torque limits, the standing pose, gait timing, reward weights, and
+randomization ranges. These used to be duplicated across the env, the
+controller, and the trick engine — tuning one and not the others silently gave
+the trick player and the RL policy *different* controllers.
+
+**Reproducibility.** Every run writes `checkpoints_v2/run_manifest.json` with
+the git commit (and whether the tree was dirty), the seed, the full env config,
+PPO hyperparameters, and library versions:
+
+```bash
+python training/train_v2.py --fresh --seed 42          # reproducible
+python training/train_v2.py --no-domain-rand           # ablation
+```
+
+**Robustness benchmark.** `evaluate_v2.py` scores command tracking under
+nominal physics; `benchmark.py` scores it under *perturbed* physics (ice,
+payload, weak/stiff motors, and a combined worst case) — because a policy that
+only works on the exact dynamics it trained on is the classic sim-to-real
+failure. Compare two policies directly:
+
+```bash
+python training/benchmark.py --compare models/pre_domain_rand
+```
+
 ## The journey
 
 Built iteratively — the dead-ends are part of the story:

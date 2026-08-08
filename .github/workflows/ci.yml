@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Physics + RL core, plus the voice/vision packages the brain imports.
+          # No Ollama, microphone, or camera is needed: the tests exercise the
+          # offline fallbacks and skip anything requiring hardware.
+          pip install mujoco gymnasium "stable-baselines3>=2.0" numpy \
+                      ollama opencv-python-headless pytest pytest-timeout
+
+      - name: Unit + integration tests
+        env:
+          MUJOCO_GL: osmesa      # headless: no display on CI runners
+        run: pytest -q --timeout=600
+
+      - name: Training pipeline smoke test
+        env:
+          MUJOCO_GL: osmesa
+        run: python training/train_v2.py --smoke
+
+      - name: Verify the run manifest was written
+        run: |
+          python - <<'PY'
+          import json, sys
+          m = json.load(open("checkpoints_smoke/run_manifest.json"))
+          missing = [k for k in ("seed", "env_cfg", "ppo", "git", "platform") if k not in m]
+          if missing:
+              sys.exit(f"manifest missing keys: {missing}")
+          print("manifest OK:", m["git"]["commit"], "seed", m["seed"])
+          PY

@@ -12,3 +12,6 @@ models/
 *.png
 *.mp4
 
+checkpoints_smoke/
+logs_smoke/
+.pytest_cache/

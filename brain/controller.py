@@ -37,10 +37,11 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from sim.envs import RobotV2Env
 import tricks
+import preflight
+
+from sim.config import KP, KD, TORQUE_LIMIT, DEFAULT_POSE, CTRL_HZ, N_FJ_Q, N_FJ_V
 
 CKPT = os.path.join(os.path.dirname(__file__), "..", "checkpoints_v2")
-KP, KD = 25.0, 0.7
-TORQUE_LIMIT = np.array([8.0, 12.0, 14.0] * 4)
 
 # state → (eye rgba, emission)
 EYE_STATES = {
@@ -53,8 +54,12 @@ EYE_STATES = {
 
 class RobotController:
     def __init__(self, model_path=None, norm_path=None):
-        model_path = model_path or os.path.join(CKPT, "best_model")
-        norm_path  = norm_path  or os.path.join(CKPT, "vec_normalize.pkl")
+        if model_path is None or norm_path is None:
+            # Raises PreflightError with the exact command to fix it, instead
+            # of a bare FileNotFoundError from deep inside SB3.
+            found_model, found_norm = preflight.check_policy(CKPT)
+            model_path = model_path or found_model
+            norm_path  = norm_path  or found_norm
 
         self.raw = RobotV2Env(render_mode="human")
         self.raw._max_steps = 10 ** 9        # kill the 20 s truncation-teleport
@@ -71,6 +76,11 @@ class RobotController:
         self.mode        = "POLICY"
         self._trick_seq  = None
         self._trick_i    = 0
+        # The voice/camera thread mutates mode state while the viewer thread is
+        # inside step(); without this, swapping _trick_seq between step()'s read
+        # of the sequence and its index raises IndexError. Re-entrant because
+        # step() itself calls do_trick() for the fetch celebration.
+        self._lock = threading.RLock()
         self._spin_left  = 0
         self.on_event    = None              # callback(str) for arrival messages
 
@@ -106,52 +116,59 @@ class RobotController:
     # ------------------------------------------------------------ commands
     def set_command(self, vx, yaw=0.0):
         """Walk/turn command — also cancels any trick/autonomous mode."""
-        self._cmd = [float(vx), float(yaw)]
-        self.mode = "POLICY"
-        self._hide_flag()
-        self.raw.data.mocap_pos[self._ball_mocap] = [0, 0, -1]
-        self._set_eyes("moving" if (abs(vx) + abs(yaw)) > 0.05 else "idle")
+        with self._lock:
+            self._cmd = [float(vx), float(yaw)]
+            self.mode = "POLICY"
+            self._hide_flag()
+            self.raw.data.mocap_pos[self._ball_mocap] = [0, 0, -1]
+            self._set_eyes("moving" if (abs(vx) + abs(yaw)) > 0.05 else "idle")
 
     def do_trick(self, name):
         if name not in tricks.TRICKS:
             return False
-        self._trick_seq = tricks.compile_trick(name, start_pose=self.raw.data.qpos[7:].copy())
-        self._trick_i   = 0
-        self.mode       = "TRICK"
-        self._set_eyes("trick")
+        with self._lock:
+            self._trick_seq = tricks.compile_trick(
+                name, start_pose=self.raw.data.qpos[N_FJ_Q:].copy())
+            self._trick_i   = 0
+            self.mode       = "TRICK"
+            self._set_eyes("trick")
         return True
 
     def spin(self, seconds=6.0, rate=0.65):
-        self._cmd = [0.0, rate]
-        self._spin_left = int(seconds * 50)
-        self.mode = "SPIN"
-        self._set_eyes("trick")
+        with self._lock:
+            self._cmd = [0.0, rate]
+            self._spin_left = int(seconds * CTRL_HZ)
+            self.mode = "SPIN"
+            self._set_eyes("trick")
 
     def fetch(self):
         """Drop the ball somewhere ahead-ish and go get it."""
-        yaw = self._yaw()
-        ang  = yaw + np.random.uniform(-1.2, 1.2)
-        dist = np.random.uniform(1.6, 2.6)
-        pos  = self.raw.data.qpos[:2] + dist * np.array([np.cos(ang), np.sin(ang)])
-        self.raw.data.mocap_pos[self._ball_mocap] = [pos[0], pos[1], 0.05]
-        self.mode = "NAVIGATE"
-        self._set_eyes("navigate")
+        with self._lock:
+            yaw = self._yaw()
+            ang  = yaw + np.random.uniform(-1.2, 1.2)
+            dist = np.random.uniform(1.6, 2.6)
+            pos  = self.raw.data.qpos[:2] + dist * np.array([np.cos(ang), np.sin(ang)])
+            self.raw.data.mocap_pos[self._ball_mocap] = [pos[0], pos[1], 0.05]
+            self.mode = "NAVIGATE"
+            self._set_eyes("navigate")
 
     def patrol(self):
         """Loop the waypoint circuit until told otherwise."""
-        self._wp_i = 0
-        self._show_flag(self._waypoints[0])
-        self.mode = "PATROL"
-        self._set_eyes("navigate")
+        with self._lock:
+            self._wp_i = 0
+            self._show_flag(self._waypoints[0])
+            self.mode = "PATROL"
+            self._set_eyes("navigate")
 
     def follow(self):
         """The ball wanders around the arena; the robot tails it."""
-        yaw = self._yaw()
-        pos = self.raw.data.qpos[:2] + 1.2 * np.array([np.cos(yaw), np.sin(yaw)])
-        self.raw.data.mocap_pos[self._ball_mocap] = [pos[0], pos[1], 0.05]
-        self._ball_vel = np.zeros(2)
-        self.mode = "FOLLOW"
-        self._set_eyes("navigate")
+        with self._lock:
+            yaw = self._yaw()
+            pos = self.raw.data.qpos[:2] + 1.2 * np.array([np.cos(yaw), np.sin(yaw)])
+            self.raw.data.mocap_pos[self._ball_mocap] = [pos[0], pos[1], 0.05]
+            self._ball_vel = np.zeros(2)
+            self.mode = "FOLLOW"
+            self._set_eyes("navigate")
 
     def _show_flag(self, xy):
         self.raw.data.mocap_pos[self._flag_mocap] = [xy[0], xy[1], 0.0]
@@ -217,10 +234,13 @@ class RobotController:
 
     # ------------------------------------------------------------ main step (50 Hz)
     def step(self):
+      # Held for the whole dispatch so a mode switch from the voice/camera
+      # thread cannot land between reading the mode and acting on it.
+      with self._lock:
         if self.mode == "TRICK":
             target = self._trick_seq[self._trick_i]
             for _ in range(4):                        # 4 x 0.005 s substeps
-                q, qd = self.raw.data.qpos[7:], self.raw.data.qvel[6:]
+                q, qd = self.raw.data.qpos[N_FJ_Q:], self.raw.data.qvel[N_FJ_V:]
                 tau = np.clip(KP * (target - q) - KD * qd, -TORQUE_LIMIT, TORQUE_LIMIT)
                 self.raw.data.ctrl[:] = tau
                 mujoco.mj_step(self.raw.model, self.raw.data)

@@ -12,15 +12,21 @@ Standing pose:    hip=0, shoulder=+0.63, knee=-1.25
 Joint limits:     hip ±0.6, shoulder ±1.3, knee [-2.0, +0.3]
 """
 
+import os
+import sys
 import numpy as np
 
-CTRL_HZ = 50
-STAND = np.array([0.0, 0.63, -1.25] * 4)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from sim.config import DEFAULT_POSE, CTRL_HZ
+
+# The standing pose is the same one the RL policy's PD controller targets at
+# action == 0, so tricks blend seamlessly back into walking.
+STAND = DEFAULT_POSE.copy()
 
 
 def _pose(fl=None, fr=None, rl=None, rr=None):
     """Build a 12-d pose from per-leg [hip, shoulder, knee] (default: stand)."""
-    default = [0.0, 0.63, -1.25]
+    default = list(STAND[:3])
     legs = [list(fl or default), list(fr or default),
             list(rl or default), list(rr or default)]
     return np.array([j for leg in legs for j in leg])
