@@ -1,0 +1,97 @@
+{
+  "created_utc": "2026-08-08T13:07:22+00:00",
+  "git": {
+    "commit": "b9350ba29ee278b5c118542c473fabf1ed27d947",
+    "branch": "main",
+    "dirty": true
+  },
+  "seed": 42,
+  "total_steps": 15000000,
+  "n_envs": 8,
+  "env_cfg": {
+    "domain_rand": {
+      "enabled": true,
+      "friction": [
+        0.6,
+        1.4
+      ],
+      "torso_mass_kg": [
+        -0.15,
+        0.3
+      ],
+      "kp_scale": [
+        0.85,
+        1.15
+      ],
+      "kd_scale": [
+        0.85,
+        1.15
+      ],
+      "torque_scale": [
+        0.85,
+        1.1
+      ]
+    },
+    "obs_noise": {
+      "enabled": true,
+      "height": 0.005,
+      "gravity": 0.02,
+      "lin_vel": 0.05,
+      "ang_vel": 0.1,
+      "joint_pos": 0.01,
+      "joint_vel": 0.6
+    },
+    "reward": {
+      "track_lin_progress": 5.0,
+      "track_lin_exp": 1.5,
+      "track_ang_progress": 3.0,
+      "track_ang_exp": 1.0,
+      "height": 1.5,
+      "upright": 1.0,
+      "alive": 0.3,
+      "gait_match": 0.5,
+      "swing_clearance": 6.0,
+      "foot_slip": 2.0,
+      "lateral": 0.3,
+      "yaw_drift": 1.0,
+      "stillness": 3.0,
+      "roll_pitch": 0.3,
+      "action_rate": 0.05,
+      "joint_vel": 0.0002,
+      "foot_lift": 1.5,
+      "max_foot_lift": 0.12,
+      "target_swing_clear": 0.07
+    },
+    "max_steps": 1000,
+    "stand_prob": 0.12
+  },
+  "ppo": {
+    "n_steps": 2048,
+    "batch_size": 4096,
+    "n_epochs": 5,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.005,
+    "learning_rate": 0.0003,
+    "vf_coef": 0.5,
+    "max_grad_norm": 1.0,
+    "policy_kwargs": {
+      "net_arch": [
+        256,
+        256
+      ]
+    }
+  },
+  "platform": {
+    "python": "3.11.15",
+    "system": "Darwin 27.0.0",
+    "machine": "arm64",
+    "numpy": "2.4.6",
+    "stable_baselines3": "2.9.0",
+    "mujoco": "3.10.0",
+    "gymnasium": "1.3.0"
+  },
+  "resumed_from": null,
+  "smoke": false
+}

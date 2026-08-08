@@ -179,6 +179,28 @@ failure. Compare two policies directly:
 python training/benchmark.py --compare models/pre_domain_rand
 ```
 
+**Measured result** (the shipped `models/final` policy vs. an identical run
+with domain randomization + observation noise disabled, 3 seeds/condition):
+
+| Condition | No DR (track err) | With DR (track err) | Change |
+|---|---|---|---|
+| nominal | 0.096 | 0.127 | +0.031 (slightly worse) |
+| ice (friction 0.25×) | 0.132 | 0.088 | −0.044 |
+| grippy (friction 2×) | 0.265 | 0.174 | −0.091 |
+| payload +1.0 kg | 0.142 | 0.142 | ≈0 |
+| weak motors | 0.328 | 0.303 | −0.025 |
+| **stiff motors** | 0.526 | 0.198 | **−0.329 (62% better)** |
+| worst case (combined) | 0.325 | 0.300 | −0.025 |
+| **mean over all conditions** | **0.259** | **0.190** | **−0.069 (27% better)** |
+
+Falls stayed at 0% in both — the PD position controller is inherently
+fall-resistant regardless of randomization, so the gain shows up in *tracking
+accuracy* under stress, not survival. There's an honest trade-off: on exactly
+nominal physics the DR policy is marginally worse (+0.031), which is the usual
+cost of a policy that hedges against variation instead of overfitting to one
+exact dynamics model. For a robot meant to keep working under motor wear,
+payload changes, or a different floor, that trade is worth it.
+
 ## The journey
 
 Built iteratively — the dead-ends are part of the story:
