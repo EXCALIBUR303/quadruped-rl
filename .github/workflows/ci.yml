@@ -29,12 +29,15 @@ jobs:
 
       - name: Unit + integration tests
         env:
-          MUJOCO_GL: osmesa      # headless: no display on CI runners
+          # CI has no display and no GL libraries. The suite is physics-only
+          # and never calls render(), so skip GL loading entirely — with
+          # osmesa/egl, `import mujoco` fails at collection time on a bare runner.
+          MUJOCO_GL: disable
         run: pytest -q --timeout=600
 
       - name: Training pipeline smoke test
         env:
-          MUJOCO_GL: osmesa
+          MUJOCO_GL: disable
         run: python training/train_v2.py --smoke
 
       - name: Verify the run manifest was written
