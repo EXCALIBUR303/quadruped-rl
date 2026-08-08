@@ -24,7 +24,7 @@ jobs:
           # Physics + RL core, plus the voice/vision packages the brain imports.
           # No Ollama, microphone, or camera is needed: the tests exercise the
           # offline fallbacks and skip anything requiring hardware.
-          pip install mujoco gymnasium "stable-baselines3>=2.0" numpy \
+          pip install mujoco gymnasium "stable-baselines3>=2.0" numpy tensorboard \
                       ollama opencv-python-headless pytest pytest-timeout
 
       - name: Unit + integration tests

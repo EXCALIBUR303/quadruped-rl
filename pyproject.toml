@@ -12,6 +12,7 @@ dependencies = [
     "gymnasium>=1.0",
     "stable-baselines3>=2.0",
     "numpy>=1.24",
+    "tensorboard",        # train_v2.py logs to it; SB3 hard-fails without it
 ]
 
 [project.optional-dependencies]
