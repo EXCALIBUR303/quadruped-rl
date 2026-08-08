@@ -39,7 +39,8 @@ from sim.envs import RobotV2Env
 import tricks
 import preflight
 
-from sim.config import KP, KD, TORQUE_LIMIT, DEFAULT_POSE, CTRL_HZ, N_FJ_Q, N_FJ_V
+from sim.config import (KP, KD, TORQUE_LIMIT, DEFAULT_POSE, CTRL_HZ,
+                        N_FJ_Q, N_FJ_V, EnvCfg)
 
 CKPT = os.path.join(os.path.dirname(__file__), "..", "checkpoints_v2")
 
@@ -61,7 +62,14 @@ class RobotController:
             model_path = model_path or found_model
             norm_path  = norm_path  or found_norm
 
-        self.raw = RobotV2Env(render_mode="human")
+        # Deployment runs on nominal dynamics with clean sensors. Domain
+        # randomization and observation noise are training-time regularizers:
+        # injecting them here would only add jitter to the demo, and the policy
+        # is trained to tolerate them, not to require them.
+        deploy_cfg = EnvCfg()
+        deploy_cfg.domain_rand.enabled = False
+        deploy_cfg.obs_noise.enabled = False
+        self.raw = RobotV2Env(render_mode="human", cfg=deploy_cfg)
         self.raw._max_steps = 10 ** 9        # kill the 20 s truncation-teleport
         venv = DummyVecEnv([lambda: self.raw])
         self.venv = VecNormalize.load(norm_path, venv)
