@@ -67,8 +67,10 @@ def command_from_target(target):
 def camera_loop(ctrl):
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("!! could not open the webcam — check camera permission "
-              "(System Settings → Privacy → Camera → Terminal), then re-run")
+        print("!! could not open the webcam.\n"
+              "   Grant access: System Settings → Privacy & Security → Camera "
+              "→ enable Terminal, then re-run.\n"
+              "   Or drive the robot by keyboard: mjpython brain/controller.py")
         os._exit(1)
     print("camera on — hold up something bright orange")
     lost_frames = 0
@@ -99,7 +101,22 @@ def camera_loop(ctrl):
 
 
 if __name__ == "__main__":
+    import preflight
+
+    ok_viewer, viewer_msg = preflight.check_viewer_runtime()
+    if not ok_viewer:
+        print(viewer_msg)
+        sys.exit(1)
+    ok_cam, cam_msg = preflight.check_camera()
+    print(("  ✓ " if ok_cam else "  ! ") + cam_msg)
+    if not ok_cam:
+        sys.exit(1)
+
     print("loading policy…")
-    ctrl = RobotController()
+    try:
+        ctrl = RobotController()
+    except preflight.PreflightError as exc:
+        print(exc)
+        sys.exit(1)
     threading.Thread(target=lambda: camera_loop(ctrl), daemon=True).start()
     ctrl.run_viewer()

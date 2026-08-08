@@ -137,3 +137,84 @@ def test_filter_keeps_legitimate_repeats():
     """'go go go' is a real (if excitable) command; only single-token spam is
     treated as a hallucination."""
     assert voice._clean_transcript("go go faster") == "go go faster"
+
+
+# --------------------------------------------------------- conversation memory
+def test_memory_records_only_actionable_intents():
+    m = nlu.ConversationMemory()
+    m.record("who are you", {"action": "chat", "vx": 0, "yaw": 0,
+                             "trick": "", "reply": "hi"})
+    assert m.last_intent is None, "chat must not become the repeatable command"
+    sit = {"action": "trick", "vx": 0, "yaw": 0, "trick": "sit", "reply": "ok"}
+    m.record("sit", sit)
+    assert m.last_intent["trick"] == "sit"
+
+
+def test_repeat_phrase_replays_last_command_without_the_llm(monkeypatch):
+    """'do it again' must work even with Ollama down."""
+    monkeypatch.setattr(nlu.ollama, "chat", lambda *a, **k:
+                        (_ for _ in ()).throw(ConnectionError("down")))
+    m = nlu.ConversationMemory()
+    m.record("dance", {"action": "trick", "vx": 0, "yaw": 0,
+                       "trick": "dance", "reply": "dancing"})
+    out = nlu.parse_command("do it again", memory=m)
+    assert out["action"] == "trick" and out["trick"] == "dance"
+    _assert_valid_intent(out)
+
+
+def test_repeat_without_history_does_not_crash(monkeypatch):
+    monkeypatch.setattr(nlu.ollama, "chat", lambda *a, **k:
+                        (_ for _ in ()).throw(ConnectionError("down")))
+    _assert_valid_intent(nlu.parse_command("again", memory=nlu.ConversationMemory()))
+
+
+def test_memory_is_bounded():
+    m = nlu.ConversationMemory(maxlen=2)
+    for i in range(6):
+        m.record(f"cmd {i}", {"action": "move", "vx": 0.1, "yaw": 0,
+                              "trick": "", "reply": "ok"})
+    assert len(m.as_messages()) == 4, "memory must stay bounded (2 turns x 2 msgs)"
+
+
+def test_memory_history_is_valid_chat_format():
+    m = nlu.ConversationMemory()
+    m.record("walk", {"action": "move", "vx": 0.4, "yaw": 0, "trick": "", "reply": "ok"})
+    for msg in m.as_messages():
+        assert set(msg) == {"role", "content"}
+        assert msg["role"] in ("user", "assistant")
+        assert isinstance(msg["content"], str)
+
+
+def test_memory_clear_resets_state():
+    m = nlu.ConversationMemory()
+    m.record("sit", {"action": "trick", "vx": 0, "yaw": 0, "trick": "sit", "reply": "ok"})
+    m.clear()
+    assert m.last_intent is None and m.as_messages() == []
+
+
+# -------------------------------------------------------------------- preflight
+def test_preflight_missing_policy_gives_actionable_error(tmp_path):
+    import preflight
+    with pytest.raises(preflight.PreflightError) as exc:
+        preflight.check_policy(str(tmp_path))
+    msg = str(exc.value)
+    assert "train_v2.py" in msg, "error must tell the user how to fix it"
+
+
+def test_preflight_finds_a_real_policy():
+    import preflight
+    from conftest import find_policy
+    if find_policy() is None:
+        pytest.skip("no policy available")
+    import os
+    d = os.path.dirname(find_policy()[0])
+    model, norm = preflight.check_policy(d)
+    assert os.path.exists(model + ".zip") and os.path.exists(norm)
+
+
+def test_preflight_checks_return_message_pairs():
+    import preflight
+    for check in (preflight.check_ollama(), preflight.check_microphone(),
+                  preflight.check_viewer_runtime()):
+        ok, msg = check
+        assert isinstance(ok, bool) and isinstance(msg, str) and msg

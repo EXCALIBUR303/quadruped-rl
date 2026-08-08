@@ -12,7 +12,45 @@ Anything that isn't a movement request is a chat — answer in character.
 """
 
 import json
+from collections import deque
+
 import ollama
+
+
+class ConversationMemory:
+    """Short rolling dialogue state.
+
+    Without this the parser is stateless, so follow-ups that depend on what
+    just happened ("do it again", "no, the other way") have nothing to resolve
+    against and get answered as if the conversation had just started. Keeps the
+    last few turns for LLM context and the last dispatched intent for replay.
+    """
+
+    def __init__(self, maxlen=4):
+        self._turns = deque(maxlen=maxlen)
+        self.last_intent = None
+
+    def record(self, text, intent):
+        self._turns.append((text, intent))
+        if intent.get("action") in ("move", "trick"):
+            self.last_intent = dict(intent)
+
+    def as_messages(self):
+        """Recent turns formatted as chat history for the LLM."""
+        msgs = []
+        for text, intent in self._turns:
+            msgs.append({"role": "user", "content": text})
+            msgs.append({"role": "assistant",
+                         "content": json.dumps({k: intent[k] for k in
+                                                ("action", "vx", "yaw", "trick", "reply")})})
+        return msgs
+
+    def clear(self):
+        self._turns.clear()
+        self.last_intent = None
+
+
+REPEAT_PHRASES = ("again", "one more", "repeat", "do that", "same thing", "encore")
 
 MODEL = "llama3.2:3b"
 VX_LO, VX_HI   = -0.3, 0.6
@@ -46,15 +84,26 @@ Examples:
 """
 
 
-def parse_command(text, current_vx=0.0, current_yaw=0.0):
+def parse_command(text, current_vx=0.0, current_yaw=0.0, memory=None):
     text = (text or "").strip()
     if not text:
         return {"action": "chat", "vx": current_vx, "yaw": current_yaw,
                 "trick": "", "reply": "I didn't catch that."}
+
+    # "do it again" replays the last real command without troubling the LLM.
+    if memory is not None and memory.last_intent is not None:
+        low = text.lower()
+        if any(p in low for p in REPEAT_PHRASES) and len(low.split()) <= 5:
+            out = dict(memory.last_intent)
+            out["reply"] = "You got it, one more time!"
+            return out
+
+    history = memory.as_messages() if memory is not None else []
     try:
         resp = ollama.chat(
             model=MODEL,
             messages=[{"role": "system", "content": SYSTEM_PROMPT},
+                      *history,
                       {"role": "user", "content": text}],
             format="json", options={"temperature": 0.4},
         )

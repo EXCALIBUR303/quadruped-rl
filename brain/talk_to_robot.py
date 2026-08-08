@@ -61,11 +61,16 @@ def _wants_quit(text):
     return any(w in t for w in QUIT_WORDS) and len(t.split()) <= 4
 
 
-def voice_loop(ctrl):
-    voice.speak("Robo pup two point oh online! I can walk, turn, sit, wave, dance, and fetch.")
+def voice_loop(ctrl, memory):
+    voice.speak("Robo pup online! I can walk, turn, sit, wave, dance, and fetch.")
     while True:
         console.print("[dim]listening…[/dim]", end="\r")
-        text = voice.listen_until_silence(verbose=False)
+        try:
+            text = voice.listen_until_silence(verbose=False)
+        except Exception as exc:
+            # A transient audio-device hiccup must not kill the session.
+            console.print(f"[yellow]  ! microphone error: {exc}[/yellow]")
+            continue
         if not text:
             continue
         if _wants_quit(text):
@@ -73,7 +78,9 @@ def voice_loop(ctrl):
             voice.speak("Powering down. Goodbye, friend!")
             os._exit(0)
 
-        intent = nlu.parse_command(text, current_vx=ctrl.speed, current_yaw=ctrl.turn)
+        intent = nlu.parse_command(text, current_vx=ctrl.speed,
+                                   current_yaw=ctrl.turn, memory=memory)
+        memory.record(text, intent)
         status(text, intent)
 
         if intent["action"] == "move":
@@ -95,8 +102,21 @@ def voice_loop(ctrl):
 
 
 if __name__ == "__main__":
-    print("loading policy + speech model…")
-    ctrl = RobotController()
+    import preflight
+
+    console.print("[bold]starting up…[/bold]")
+    ok_viewer = preflight.check_viewer_runtime()
+    preflight.report([ok_viewer, preflight.check_ollama(nlu.MODEL),
+                      preflight.check_microphone()], console)
+    if not ok_viewer[0]:
+        sys.exit(1)
+    try:
+        ctrl = RobotController()          # raises PreflightError if untrained
+    except preflight.PreflightError as exc:
+        console.print(f"[bold red]{exc}[/bold red]")
+        sys.exit(1)
+
+    console.print("[dim]loading speech model (first run downloads ~75 MB)…[/dim]")
     voice._get_model()
 
     def on_event(event):
@@ -107,5 +127,6 @@ if __name__ == "__main__":
     ctrl.on_event = on_event
 
     banner()
-    threading.Thread(target=lambda: voice_loop(ctrl), daemon=True).start()
+    memory = nlu.ConversationMemory()
+    threading.Thread(target=lambda: voice_loop(ctrl, memory), daemon=True).start()
     ctrl.run_viewer()
